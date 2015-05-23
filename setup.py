@@ -12,22 +12,22 @@ import sys
 # 	extras['tests_require'] = ['mock']
 
 setup(
-	name = 'vycody',
+	name = 'vycodi',
 	version = '0.1',
 	description = 'Distributed redis job - queue system',
 	long_description = long_description,
 	author = 'Paul Skopnik',
 	author_email = 'paul@skopnik.me',
 	license = 'MIT',
-	url = 'http://gl.wo.skopnik.pw/pskopnik/vycody',
-	provides = ['vycody'],
-	packages = ['vycody', 'vycody.modules'],
+	url = 'http://gl.wo.skopnik.pw/pskopnik/vycodi',
+	provides = ['vycodi'],
+	packages = ['vycodi', 'vycodi.modules'],
 	install_requires = [
 		"argh>=0.25"
 	],
 	entry_points = {
 		'console_scripts': [
-			'vycody=vycody.cli:main'
+			'vycodi=vycodi.cli:main'
 		]
 	},
 	# extras_require = {
