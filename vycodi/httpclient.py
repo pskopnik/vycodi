@@ -1,10 +1,120 @@
 import requests
+from os.path import abspath
+
+class FileLoaderException(Exception):
+	pass
+
+
+class FileNotFound(FileLoaderException):
+	def __init__(self, id):
+		super(FileNotFound, self).__init__("FileNotFound, id = " + str(id))
+		self.id = id
+
+
+class FileNotAvailable(FileLoaderException):
+	def __init__(self, id):
+		super(FileNotAvailable, self).__init__("FileNotAvailable, id = " + str(id))
+		self.id = id
+
+
+class HostNotAvailable(FileLoaderException):
+	def __init__(self, id):
+		super(HostNotAvailable, self).__init__("HostNotAvailable, id = " + str(id))
+		self.id = id
+
+
+class LoaderNotSet(FileLoaderException):
+	def __init__(self):
+		super(LoaderNotSet, self).__init__("LoaderNotSet")
+
+
+class PathNotSet(FileLoaderException):
+	def __init__(self):
+		super(PathNotSet, self).__init__("PathNotSet")
+
+
+class File(object):
+	def __init__(self, id, name, type, path=None, loader=None):
+		self.id = id
+		self.name = name
+		self.type = type
+		self.path = path
+		self.loader = loader
+
+	def download(self, path=None):
+		if self.loader is None:
+			raise LoaderNotSet()
+		if path is not None:
+			self.path = path
+		self.loader.download(self.id, self.path)
+
+	def upload(self, path=None):
+		if self.loader is None:
+			raise LoaderNotSet()
+		if path is not None:
+			self.path = path
+		self.loader.upload(self.id, self.path)
+
+	def open(self, *args, **kwargs):
+		if path is None:
+			raise PathNotSet()
+		return open(self.path, *args, **kwargs)
+
+
+class FileLoader(object):
+	def __init__(self, redis, pool=None):
+		self._redis = redis
+		if pool is None:
+			pool = ClientPool()
+		self._pool = pool
+
+	def download(self, id, outF):
+		f = self.getFile(id, fObj=outF)
+		s = self._pool[self._getServerAddress(id)]
+		s.download(id, outF)
+		return f
+
+	def upload(self, id, inF):
+		f = self.getFile(id, fObj=inF)
+		s = self._pool[self._getServerAddress(id)]
+		s.upload(id, inF)
+		return f
+
+	def getFile(self, id, fObj=None):
+		"""Gets file data from redis server
+		id is file id, must be str(.) compatible
+		If fObj is set, it tries to deduct its abspath and
+		sets it as the path of the File
+		"""
+		fDict = self._redis.hgetall('vycodi:file:' + str(id))
+		if len(fDict) == 0:
+			raise FileNotFound(id)
+		f = File(fDict[b'id'], fDict[b'name'], fDict[b'type'])
+		if fObj is not None:
+			if isinstance(fObj, str):
+				f.path = abspath(fObj)
+			else:
+				try:
+					f.path = abspath(fObj.name)
+				except AttributeError:
+					pass
+		return f
+
+	def _getServerAddress(self, id):
+		hostId = self._redis.srandmember('vycodi:file:' + str(id) + ':hosts')
+		if hostId is None:
+			raise FileNotAvailable(id)
+		hostId = hostId.decode('utf-8')
+		hostDict = self._redis.hgetall('vycodi:host:' + hostId)
+		return (hostDict[b'address'].decode('utf-8'), int(hostDict[b'port']))
+
 
 class HTTPClientException(Exception):
 	def __init__(self, retCode, message):
 		super(HTTPClientException, self).__init__()
 		self.retCode = retCode
 		self.message = message
+
 
 class ClientPool(object):
 	def __init__(self):
@@ -22,6 +132,7 @@ class ClientPool(object):
 		if serverStrAdr in self._clients:
 			del self._clients[serverStrAdr]
 		self._clients[serverStrAdr] = client
+
 
 class Client(object):
 	def __init__(self, server):
