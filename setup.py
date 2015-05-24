@@ -21,7 +21,7 @@ setup(
 	license = 'MIT',
 	url = 'http://gl.wo.skopnik.pw/pskopnik/vycodi',
 	provides = ['vycodi'],
-	packages = ['vycodi', 'vycodi.modules'],
+	packages = ['vycodi'],
 	install_requires = [
 		"argh>=0.25"
 	],
