@@ -1,33 +1,31 @@
 import argh
 import json
-from vycodi.host import Host
-from redis import StrictRedis
+from vycodi.utils import loadJSONConfig, redisFromConfig
+from vycodi.host import fromConfig as hostDaemonFromConfig
 
-def loadJSONFile(filePath):
-	with open(filePath, 'r') as f:
-		return json.load(f)
+@argh.named("start")
+def startHost(configFile, foreground=False):
+	config = loadJSONConfig(configFile)
+	hostDaemon = hostDaemonFromConfig(None, config, daemonize=not foreground)
+	hostDaemon.start()
 
-def loadJSONFile(filePath):
-	with open(filePath, 'w') as f:
-		return json.dump(f, indent='\t')
+@argh.named("stop")
+def stopHost(configFile):
+	config = loadJSONConfig(configFile)
+	hostDaemon = hostDaemonFromConfig(None, config)
+	hostDaemon.stop()
 
-def redisFromConfig(config):
-	host = config.get('dbhost', 'localhost')
-	port = int(config.get('dbport', 6379))
-	db = int(config.get('dbdb', 0))
-	password = config.get('dbpassword', None)
-	return StrictRedis(host=host, port=port, db=db, password=password)
-
-def startHost(configFile):
-	config = loadJSONFile(configFile)
-	redis = redisFromConfig(config)
-	bindAddress = config['address']
-	bindPort = int(config['port'])
-
-	hostObj = Host((bindAddress, bindPort), redis)
+@argh.named("status")
+def statusHost(configFile):
+	config = loadJSONConfig(configFile)
+	hostDaemon = hostDaemonFromConfig(None, config)
+	if hostDaemon.status():
+		print("host daemon running")
+	else:
+		print("host daemon not running")
 
 parser = argh.ArghParser()
-parser.add_commands((startHost,), namespace="host")
+parser.add_commands((startHost, stopHost, statusHost), namespace="host")
 
 def main():
 	parser.dispatch()
