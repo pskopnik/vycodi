@@ -1,7 +1,8 @@
 from http.server import HTTPServer
 from http.server import SimpleHTTPRequestHandler
 from threading import Thread
-import os
+from os import fstat
+import logging
 
 __version__ = "0.1"
 
@@ -14,11 +15,14 @@ class Server(Thread):
 
 		Handler.bucket = bucket
 		self._server = HTTPServer(address, Handler)
+		self._logger = logging.getLogger(__name__)
 
 	def run(self):
+		self._logger.info("Starting server...")
 		self._server.serve_forever()
 
 	def shutdown(self):
+		self._logger.info("Shutting down server...")
 		self._server.shutdown()
 
 
@@ -39,6 +43,10 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 	error_content_type = "text/plain"
 	error_message_format = "[%(code)d] %(message)s - %(explain)s"
 	buffer_size = 1024 * 1024
+
+	def __init__(self, *args, **kwargs):
+		self._logger = logging.getLogger(__name__)
+		super(HTTPRequestHandler, self).__init__(*args, **kwargs)
 
 	def do_GET(self):
 		"""Serve a GET request."""
@@ -78,6 +86,7 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 			return False
 
 		try:
+			self.log_message("Starting upload of %s - %s", fileId, fileObj.name)
 			f = open(fileObj.path, 'wb')
 			while contentLength > 0:
 				if contentLength < self.buffer_size:
@@ -86,6 +95,7 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 					chunk = self.rfile.read(self.buffer_size)
 				f.write(chunk)
 				contentLength -= len(chunk)
+			self.log_message("Finished upload of %s", fileId)
 			return True
 		except IOError:
 			self.send_error(500, explain="Couldn't find / write local file")
@@ -120,9 +130,10 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 			self.send_error(500, explain="Couldn't find local file")
 			return None
 		try:
+			self.log_message("Sending headers for %s - %s", fileId, fileObj.name)
 			self.send_response(200)
 			self.send_header("Content-type", self.guess_type(fileObj.path))
-			fs = os.fstat(f.fileno())
+			fs = fstat(f.fileno())
 			self.send_header("Content-Length", str(fs[6]))
 			self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
 			self.end_headers()
@@ -130,3 +141,9 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 		except:
 			f.close()
 			raise
+
+	def log_message(self, format, *args):
+		self._logger.info("%s - - [%s] %s" %
+						(self.address_string(),
+						self.log_date_time_string(),
+						format % args))

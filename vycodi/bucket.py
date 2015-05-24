@@ -42,6 +42,13 @@ class File(object):
 			"type": self._type
 		}
 
+	def exportRedis(self):
+		return {
+			"id": self.id,
+			"name": self.name,
+			"type": self._type
+		}
+
 class FileBucket(object):
 	"""Bucket of File objects, accessible by id
 	Persistence by dumping all files as a json file
@@ -53,7 +60,8 @@ class FileBucket(object):
 		self._files = dict()
 		self._writeLocks = dict()
 		self._redis = redis
-		self._host = host
+		self._registered = False
+		self.host = host
 
 	def __getitem__(self, key):
 		if isinstance(key, File):
@@ -63,30 +71,35 @@ class FileBucket(object):
 	def __delitem__(self, key):
 		if isinstance(key, File):
 			key = key.id
-		self.unregisterFile(self._files[key])
+		file = self._files[key]
+		self._unregisterFile(file)
+		file.bucket = None
 		del self._files[key]
 
 	def add(self, file):
 		if file.id in self._files:
 			del self[file.id]
 		self._files[file.id] = file
-		self.registerFile(file)
+		file.bucket = self
+		if self._registered:
+			self._registerFile(file)
 
 	def register(self):
 		for f in self._files.values():
 			# TODO LOCK
 			l = self._redis.lock(self.key_base + f.id + ':lock', timeout=0.5, sleep=0.1)
 			l.acquire()
-			self._redis.hmset(self.key_base + f.id, f.export())
-			self._redis.sadd(self.key_base + f.id + ":hosts", self._host.id)
+			self._redis.hmset(self.key_base + f.id, f.exportRedis())
+			self._redis.sadd(self.key_base + f.id + ":hosts", self.host.id)
 			l.release()
+		self._registered = True
 
-	def registerFile(self, file):
+	def _registerFile(self, file):
 		# TODO LOCK
 		l = self._redis.lock(self.key_base + file.id + ':lock', timeout=0.5, sleep=0.1)
 		l.acquire()
-		self._redis.hmset(self.key_base + file.id, file.export())
-		self._redis.sadd(self.key_base + file.id + ":hosts", self._host.id)
+		self._redis.hmset(self.key_base + file.id, file.exportRedis())
+		self._redis.sadd(self.key_base + file.id + ":hosts", self.host.id)
 		l.release()
 
 	def unregister(self):
@@ -96,26 +109,27 @@ class FileBucket(object):
 				self._writeLocks[f.id].release()
 			l = self._redis.lock(self.key_base + f.id + ':lock', timeout=0.5, sleep=0.1)
 			l.acquire()
-			self._redis.srem(self.key_base + f.id + ":hosts", self._host.id)
+			self._redis.srem(self.key_base + f.id + ":hosts", self.host.id)
 			if self._redis.scard(self.key_base + f.id + ":hosts") < 1:
 				self._redis.delete(self.key_base + f.id)
 				self._redis.delete(self.key_base + f.id + ':hosts')
 			l.release()
+		self._registered = False
 
-	def unregisterFile(self, file):
+	def _unregisterFile(self, file):
 		# TODO LOCK
 		if f.id in self._writeLocks:
 			self._writeLocks[f.id].release()
 		l = self._redis.lock(self.key_base + file.id + ':lock', timeout=0.5, sleep=0.1)
 		l.acquire()
-		self._redis.srem(self.key_base + file.id + ":hosts", self._host.id)
+		self._redis.srem(self.key_base + file.id + ":hosts", self.host.id)
 		if self._redis.scard(self.key_base + file.id + ":hosts") < 1:
 			self._redis.delete(self.key_base + file.id)
 			self._redis.delete(self.key_base + file.id + ':hosts')
 		l.release()
 
 	def updateFile(self, file, *args):
-		fileExp = file.export()
+		fileExp = file.exportRedis()
 		if len(args) == 0:
 			data = fileExp
 		else:
@@ -138,10 +152,10 @@ class FileBucket(object):
 		self._writeLocks[file.id].release()
 		del self._writeLocks[file.id]
 
-	def loadJSON(self, f, register=True):
+	def loadJSON(self, f, register=False):
 		if isinstance(f, str):
-			with open(f, 'r'):
-				data = json.load(f)
+			with open(f, 'r') as fObj:
+				data = json.load(fObj)
 		else:
 			data = json.load(f)
 		for fDict in data:
@@ -152,7 +166,7 @@ class FileBucket(object):
 			if register:
 				l = self._redis.lock(self.key_base + f.id + ':lock', timeout=0.5, sleep=1)
 				self._redis.hmset(self.key_base + fDict['id'], fDict)
-				self._redis.sadd(self.key_base + fDict['id'] + ":hosts", self._host.id)
+				self._redis.sadd(self.key_base + fDict['id'] + ":hosts", self.host.id)
 				l.release()
 
 	def exportJSON(self, f):
@@ -164,3 +178,35 @@ class FileBucket(object):
 				json.dump(data, f, separators=(',', ':'))
 		else:
 			json.dump(data, f, separators=(',', ':'))
+
+class JSONFileBucket(FileBucket):
+	def __init__(self, redis, host, fPath):
+		super(JSONFileBucket, self).__init__(redis, host)
+		self._path = fPath
+		self.loadJSON(self._path)
+
+	def store(self):
+		self.exportJSON(self._path1)
+
+	# def __del__(self):
+	# 	self.store()
+
+# TODO
+class JournaledFileBucket(JSONFileBucket):
+	def __init__(self, redis, host, fPath, journalPath):
+		super(JournaledFileBucket, self).__init__(redis, host, fPath)
+		self._journalPath = journalPath
+		self._journalFile = open(journalPath, 'rw')
+
+	def store(self):
+		super(JournaledFileBucket, self).store()
+		self._journalFile.seek(0)
+		self._journalFile.truncate()
+		self._journalFile.flush()
+
+	def __del__(self):
+		super(JournaledFileBucket, self).__del__()
+		try:
+			self._journalFile.close()
+		except Exception:
+			pass
