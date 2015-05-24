@@ -15,7 +15,7 @@ class Server(Thread):
 
 		Handler.bucket = bucket
 		self._server = HTTPServer(address, Handler)
-		self._logger = logging.getLogger(__name__)
+		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
 	def run(self):
 		self._logger.info("Starting server...")
@@ -45,7 +45,7 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 	buffer_size = 1024 * 1024
 
 	def __init__(self, *args, **kwargs):
-		self._logger = logging.getLogger(__name__)
+		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 		super(HTTPRequestHandler, self).__init__(*args, **kwargs)
 
 	def do_GET(self):

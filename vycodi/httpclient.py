@@ -1,4 +1,5 @@
 import requests
+from vycodi.utils import decodeRedis
 from os.path import abspath
 
 class FileLoaderException(Exception):
@@ -85,11 +86,12 @@ class FileLoader(object):
 		id is file id, must be str(.) compatible
 		If fObj is set, it tries to deduct its abspath and
 		sets it as the path of the File
+		Also sets the loader of the file to this FileLoader
 		"""
-		fDict = self._redis.hgetall('vycodi:file:' + str(id))
+		fDict = decodeRedis(self._redis.hgetall('vycodi:file:' + str(id)))
 		if len(fDict) == 0:
 			raise FileNotFound(id)
-		f = File(fDict[b'id'], fDict[b'name'], fDict[b'type'])
+		f = File(int(fDict['id']), fDict['name'], fDict['type'], loader=self)
 		if fObj is not None:
 			if isinstance(fObj, str):
 				f.path = abspath(fObj)

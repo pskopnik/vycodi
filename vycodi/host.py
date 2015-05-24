@@ -48,6 +48,7 @@ class Host(object):
 		self._server = None
 		self._rpcAddress = rpcAddress
 		self._rpcServer = None
+		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 		if id is None:
 			self.id = self._fetchNextId()
 		else:
@@ -64,6 +65,7 @@ class Host(object):
 			self.bucket = bucket
 
 	def start(self):
+		self._logger.info("Starting...")
 		if self._server is None:
 			self._server = HTTPServer(self._address, self.bucket)
 		if self._rpcAddress is not None:
@@ -72,15 +74,14 @@ class Host(object):
 			self._rpcServer.start()
 		self._server.start()
 		self._register()
+		self.bucket.load()
 
 	def shutdown(self):
+		self._logger.info("Shutting down...")
 		self._unregister()
 		self._server.shutdown()
 		self._rpcServer.shutdown()
-		try:
-			self.bucket.store()
-		except Exception:
-			pass
+		self.bucket.store()
 
 	def join(self):
 		if self._server is not None:
@@ -117,6 +118,7 @@ class Host(object):
 		return host
 
 	def _register(self):
+		self._logger.info("Registering...")
 		self._redis.hmset('vycodi:host:' + str(self.id), {
 			'address': self._address[0],
 			'port': self._address[1]
@@ -125,6 +127,7 @@ class Host(object):
 		self.bucket.register()
 
 	def _unregister(self):
+		self._logger.info("Unregistering...")
 		self.bucket.unregister()
 		self._redis.srem('vycodi:hosts', self.id)
 		self._redis.delete('vycodi:host:' + str(self.id))
@@ -137,13 +140,13 @@ class HostRPCServer(Thread):
 	def __init__(self, address, host):
 		super(HostRPCServer, self).__init__()
 		self._host = host
-		self._logger = logging.getLogger(__name__)
+		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 		dispatcher = Dispatcher()
 		dispatcher.add_method(self.genAddFile())
 		self._server = RPCServer(address, dispatcher)
 
 	def run(self):
-		self._logger.info("Starting server...")
+		self._logger.info("Starting...")
 		self._server.serve_forever()
 
 	def genAddFile(self):
@@ -166,7 +169,7 @@ class HostRPCServer(Thread):
 		return addFile
 
 	def shutdown(self):
-		self._logger.info("Shutting down server...")
+		self._logger.info("Shutting down...")
 		self._server.shutdown()
 
 class HostRPCClient(RPCClient):

@@ -41,3 +41,11 @@ def redisFromConfig(config):
 	db = int(config.get('dbdb', 0))
 	password = config.get('dbpassword', None)
 	return StrictRedis(host=host, port=port, db=db, password=password)
+
+def decodeRedis(d, encoding='utf-8', errors='strict'):
+	n = dict()
+	for k in d:
+		n[k.decode(encoding=encoding, errors=errors)] = d[k].decode(
+			encoding=encoding, errors=errors
+		)
+	return n

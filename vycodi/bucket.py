@@ -1,4 +1,5 @@
 from vycodi.utils import loadJSONData, storeJSONData
+import logging
 
 validFileTypes = ('r', 'w', 'l')
 
@@ -16,6 +17,14 @@ class File(object):
 		self.path = path
 		self._type = type
 		self.bucket = bucket
+
+	@property
+	def id(self):
+		return self._id
+
+	@id.setter
+	def id(self, id):
+		self._id = int(id)
 
 	@property
 	def type(self):
@@ -63,16 +72,21 @@ class FileBucket(object):
 		self._writeLocks = dict()
 		self._redis = redis
 		self._registered = False
+		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 		self.host = host
 
 	def __getitem__(self, key):
 		if isinstance(key, File):
 			key = key.id
+		elif not isinstance(key, int):
+			key = int(key)
 		return self._files[key]
 
 	def __delitem__(self, key):
 		if isinstance(key, File):
 			key = key.id
+		elif not isinstance(key, int):
+			key = int(key)
 		file = self._files[key]
 		self._unregisterFile(file)
 		file.bucket = None
@@ -133,7 +147,7 @@ class FileBucket(object):
 		l.release()
 
 	def _fetchNextId(self):
-		return self._redis.incr('vycodi:files:index')
+		return int(self._redis.incr('vycodi:files:index'))
 
 	def updateFile(self, file, *args):
 		fileExp = file.exportRedis()
@@ -159,17 +173,24 @@ class FileBucket(object):
 		self._writeLocks[file.id].release()
 		del self._writeLocks[file.id]
 
+	def store(self):
+		pass
+
+	def load(self):
+		pass
+
 	def loadJSON(self, f, register=False):
 		data = loadJSONData(f)
 		for fDict in data:
 			self._files[fDict['id']] = File(
 				fDict['id'], fDict['name'],
-				fDict['path'], fDict['type']
+				fDict['path'], fDict['type'], self
 			)
 			if register:
-				l = self._redis.lock(self.key_base + f.id + ':lock', timeout=0.5, sleep=1)
-				self._redis.hmset(self.key_base + fDict['id'], fDict)
-				self._redis.sadd(self.key_base + fDict['id'] + ":hosts", self.host.id)
+				l = self._redis.lock(self.key_base + str(fDict['id']) + ':lock', timeout=0.5, sleep=0.1)
+				l.acquire()
+				self._redis.hmset(self.key_base + str(fDict['id']), fDict)
+				self._redis.sadd(self.key_base + str(fDict['id']) + ":hosts", self.host.id)
 				l.release()
 
 	def exportJSON(self, f):
@@ -182,9 +203,14 @@ class JSONFileBucket(FileBucket):
 	def __init__(self, redis, host, fPath):
 		super(JSONFileBucket, self).__init__(redis, host)
 		self._path = fPath
-		self.loadJSON(self._path)
+
+	def load(self):
+		self._logger.info("Loading JSONFileBucket from '%s'...", self._path)
+		self.loadJSON(self._path, register=self._registered)
+		self._logger.info("Loaded %s files from '%s' into JSONFileBucket", len(self._files), self._path)
 
 	def store(self):
+		self._logger.info("Storing JSONFileBucket %s files to '%s'...", len(self._files), self._path)
 		self.exportJSON(self._path)
 
 	# def __del__(self):

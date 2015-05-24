@@ -107,11 +107,10 @@ class RequestHandler(BaseRequestHandler):
 
 	def handle(self):
 		request = recvBytes(self.request)
+		self._logger.info("Received request")
 		response = JSONRPCResponseManager.handle(request, self.dispatcher)
 		sendBytes(self.request, response.json)
-		if response.error is None:
-			self._logger.info("Received request")
-		else:
+		if response.error is not None:
 			self._logger.info("Received request, ERROR [%s] %s",
 					response.error['code'], response.error['message'])
 
@@ -127,7 +126,10 @@ class UnixServer(ThreadingUnixStreamServer):
 
 	def shutdown(self):
 		super(UnixServer, self).shutdown()
-		os.unlink(self.server_address)
+		try:
+			os.unlink(self.server_address)
+		except FileNotFoundError:
+			pass
 
 
 def Server(address, dispatcher, *args, **kwargs):
