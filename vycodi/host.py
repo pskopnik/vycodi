@@ -24,14 +24,14 @@ class HostDaemon(Daemon):
 		self.host.join()
 
 	@classmethod
-	def fromConfig(cls, config, redis=None):
+	def fromConfig(cls, config, *args, redis=None, **kwargs):
 		runDir = abspath(config['runDir'])
 		if not exists(runDir):
 			mkdir(runDir)
 		host = Host.fromConfig(config, redis=redis)
 		pidFile = join(runDir, 'daemon.pid')
 		logFile = join(runDir, 'daemon.log')
-		return cls(host, pidFile, logFile=logFile)
+		return cls(host, pidFile, *args, logFile=logFile, **kwargs)
 
 class Host(object):
 	"""Host for files
