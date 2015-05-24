@@ -2,4 +2,6 @@ argh
 glances
 requests
 redis
+hiredis
+json-rpc
 mattdaemon
