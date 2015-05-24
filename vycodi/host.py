@@ -1,59 +1,42 @@
-from vycodi.bucket import FileBucket, JSONFileBucket
-from vycodi.httpserver import Server
+from vycodi.bucket import FileBucket, File, JSONFileBucket, validFileTypes
+from vycodi.httpserver import Server as HTTPServer
 from vycodi.daemon import Daemon
-from vycodi.utils import redisFromConfig, ensureJSONData, storeJSONData
+from vycodi.utils import redisFromConfig, ensureJSONData, storeJSONData, loadJSONData
+from vycodi.jsonrpc import RPCClient, Server as RPCServer, Dispatcher, JSONRPCDispatchException
 from os.path import join, abspath, exists
-from os import mkdir
+from os import mkdir, access, R_OK, W_OK
 from io import IOBase
-import json
-
-def fromConfig(redis, config, *args, **kwargs):
-	if redis is None:
-		redis = redisFromConfig(config)
-	address = (config['address'], int(config['port']))
-	runDir = abspath(config['runDir'])
-	if not exists(runDir):
-		mkdir(runDir)
-
-	pidFile = join(runDir, 'daemon.pid')
-	logFile = join(runDir, 'daemon.log')
-	bucketFile = join(runDir, 'bucket.json')
-	ensureJSONData(bucketFile, [])
-
-	hostId = None
-	try:
-		with open(join(runDir, 'data.json')) as f:
-			data = json.load(f)
-			hostId = data['hostId']
-	except FileNotFoundError:
-		pass
-
-	obj = HostDaemon(address, redis, pidFile, *args, id=hostId, bucket=bucketFile, logFile=logFile, **kwargs)
-
-	if hostId is None:
-		storeJSONData(join(runDir, 'data.json'), {'hostId': obj._host.id})
-	return obj
-
+from threading import Thread
+import logging
 
 class HostDaemon(Daemon):
-	def __init__(self, address, redis, *args, id=None, bucket=None, logFile=None, **kwargs):
+	def __init__(self, host, *args, logFile=None, **kwargs):
 		super(HostDaemon, self).__init__(*args, **kwargs)
-		self._host = Host(address, redis, id=id, bucket=bucket)
+		self.host = host
 		self._logFile = logFile
 
 	def _run(self, *args, **kwargs):
-		self._host.start()
+		self.host.start()
 		self.wait()
 
 	def _shutdown(self):
-		self._host.shutdown()
-		self._host.join()
+		self.host.shutdown()
+		self.host.join()
 
+	@classmethod
+	def fromConfig(cls, config, redis=None):
+		runDir = abspath(config['runDir'])
+		if not exists(runDir):
+			mkdir(runDir)
+		host = Host.fromConfig(config, redis=redis)
+		pidFile = join(runDir, 'daemon.pid')
+		logFile = join(runDir, 'daemon.log')
+		return cls(host, pidFile, logFile=logFile)
 
 class Host(object):
 	"""Host for files
 	"""
-	def __init__(self, address, redis, id=None, bucket=None):
+	def __init__(self, address, redis, id=None, bucket=None, rpcAddress=None):
 		"""Init
 		address must be a two element tuple address = (bindAddress, bindPort)
 		If id is not set (is None), the next available host id is fetched
@@ -63,6 +46,8 @@ class Host(object):
 		self._redis = redis
 		self._address = address
 		self._server = None
+		self._rpcAddress = rpcAddress
+		self._rpcServer = None
 		if id is None:
 			self.id = self._fetchNextId()
 		else:
@@ -80,13 +65,18 @@ class Host(object):
 
 	def start(self):
 		if self._server is None:
-			self._server = Server(self._address, self.bucket)
+			self._server = HTTPServer(self._address, self.bucket)
+		if self._rpcAddress is not None:
+			if self._rpcServer is None:
+				self._rpcServer = HostRPCServer(self._rpcAddress, self)
+			self._rpcServer.start()
 		self._server.start()
 		self._register()
 
 	def shutdown(self):
 		self._unregister()
 		self._server.shutdown()
+		self._rpcServer.shutdown()
 		try:
 			self.bucket.store()
 		except Exception:
@@ -95,6 +85,36 @@ class Host(object):
 	def join(self):
 		if self._server is not None:
 			self._server.join()
+		if self._rpcServer is not None:
+			self._rpcServer.join()
+
+	def rpcClient(self):
+		return HostRPCClient(self._rpcAddress)
+
+	@classmethod
+	def fromConfig(cls, config, redis=None):
+		if redis is None:
+			redis = redisFromConfig(config)
+		address = (config['address'], int(config['port']))
+		runDir = abspath(config['runDir'])
+		if not exists(runDir):
+			mkdir(runDir)
+
+		rpcSock = join(runDir, 'rpc.sock')
+		bucketFile = join(runDir, 'bucket.json')
+		ensureJSONData(bucketFile, [])
+
+		hostId = None
+		try:
+			hostId = loadJSONData(join(runDir, 'data.json'))['hostId']
+		except FileNotFoundError:
+			pass
+
+		host = cls(address, redis, id=hostId, bucket=bucketFile, rpcAddress=rpcSock)
+
+		if hostId is None:
+			storeJSONData(join(runDir, 'data.json'), {'hostId': host.id})
+		return host
 
 	def _register(self):
 		self._redis.hmset('vycodi:host:' + str(self.id), {
@@ -111,3 +131,47 @@ class Host(object):
 
 	def _fetchNextId(self):
 		return self._redis.incr('vycodi:hosts:index')
+
+
+class HostRPCServer(Thread):
+	def __init__(self, address, host):
+		super(HostRPCServer, self).__init__()
+		self._host = host
+		self._logger = logging.getLogger(__name__)
+		dispatcher = Dispatcher()
+		dispatcher.add_method(self.genAddFile())
+		self._server = RPCServer(address, dispatcher)
+
+	def run(self):
+		self._logger.info("Starting server...")
+		self._server.serve_forever()
+
+	def genAddFile(self):
+		def addFile(name, path, type):
+			if type not in validFileTypes:
+				raise JSONRPCDispatchException(
+					code=101,
+					message="Invalid type supplied"
+				)
+			mode = W_OK if type in ('w',) else R_OK
+			if not access(path, mode):
+				raise JSONRPCDispatchException(
+					code=111,
+					message="Path not accessible"
+				)
+			f = File(None, name, path, type)
+			self._host.bucket.add(f)
+			self._logger.info("Added file %s - %s", f.id, f.name)
+			return f.id
+		return addFile
+
+	def shutdown(self):
+		self._logger.info("Shutting down server...")
+		self._server.shutdown()
+
+class HostRPCClient(RPCClient):
+	def addFile(self, name, path, type):
+		with self.sock() as sock:
+			reqId = self._sendRequest(sock, 'addFile', [name, path, type])
+			response = self._recvResponse(sock, reqId)
+			return response['result']
