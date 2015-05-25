@@ -163,7 +163,7 @@ class FileBucket(object):
 		if file.id in self._writeLocks:
 			return
 		# TODO LOCK
-		l = self._redis.lock(self.key_base + file.id)
+		l = self._redis.lock(self.key_base + file.id + ':writelock')
 		l.acquire()
 		self._writeLocks[file.id] = l
 

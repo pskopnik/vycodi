@@ -4,4 +4,4 @@ requests
 redis
 hiredis
 json-rpc
-mattdaemon
+-e git+http://gl.wo.skopnik.pw/pskopnik/mattdaemon.git#egg=mattdaemon
