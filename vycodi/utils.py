@@ -33,7 +33,7 @@ def storeJSONData(file, data):
 
 def ensureJSONData(filePath, default):
 	if not exists(filePath):
-		storeJSONData(file, default)
+		storeJSONData(filePath, default)
 
 def redisFromConfig(config):
 	host = config.get('dbhost', 'localhost')

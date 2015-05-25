@@ -18,11 +18,11 @@ class Server(Thread):
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
 	def run(self):
-		self._logger.info("Starting server...")
+		self._logger.info("Starting...")
 		self._server.serve_forever()
 
 	def shutdown(self):
-		self._logger.info("Shutting down server...")
+		self._logger.info("Shutting...")
 		self._server.shutdown()
 
 
