@@ -68,7 +68,7 @@ class FileBucket(object):
 	Persistence by dumping all files as a json file
 	Also registers files in the redis database
 	"""
-	key_base = 'vycodi:file:'
+	keyBase = 'vycodi:file:'
 
 	def __init__(self, redis, host):
 		self._files = dict()
@@ -108,19 +108,19 @@ class FileBucket(object):
 	def register(self):
 		for f in self._files.values():
 			# TODO LOCK
-			l = self._redis.lock(self.key_base + str(f.id) + ':lock', timeout=0.5, sleep=0.1)
+			l = self._redis.lock(self.keyBase + str(f.id) + ':lock', timeout=0.5, sleep=0.1)
 			l.acquire()
-			self._redis.hmset(self.key_base + str(f.id), f.exportRedis())
-			self._redis.sadd(self.key_base + str(f.id) + ":hosts", self.host.id)
+			self._redis.hmset(self.keyBase + str(f.id), f.exportRedis())
+			self._redis.sadd(self.keyBase + str(f.id) + ":hosts", self.host.id)
 			l.release()
 		self._registered = True
 
 	def _registerFile(self, file):
 		# TODO LOCK
-		l = self._redis.lock(self.key_base + str(file.id) + ':lock', timeout=0.5, sleep=0.1)
+		l = self._redis.lock(self.keyBase + str(file.id) + ':lock', timeout=0.5, sleep=0.1)
 		l.acquire()
-		self._redis.hmset(self.key_base + str(file.id), file.exportRedis())
-		self._redis.sadd(self.key_base + str(file.id) + ":hosts", self.host.id)
+		self._redis.hmset(self.keyBase + str(file.id), file.exportRedis())
+		self._redis.sadd(self.keyBase + str(file.id) + ":hosts", self.host.id)
 		l.release()
 
 	def unregister(self):
@@ -128,12 +128,12 @@ class FileBucket(object):
 			# TODO LOCK
 			if f.id in self._writeLocks:
 				self._writeLocks[f.id].release()
-			l = self._redis.lock(self.key_base + str(f.id) + ':lock', timeout=0.5, sleep=0.1)
+			l = self._redis.lock(self.keyBase + str(f.id) + ':lock', timeout=0.5, sleep=0.1)
 			l.acquire()
-			self._redis.srem(self.key_base + str(f.id) + ":hosts", self.host.id)
-			if self._redis.scard(self.key_base + str(f.id) + ":hosts") < 1:
-				self._redis.delete(self.key_base + str(f.id))
-				self._redis.delete(self.key_base + str(f.id) + ':hosts')
+			self._redis.srem(self.keyBase + str(f.id) + ":hosts", self.host.id)
+			if self._redis.scard(self.keyBase + str(f.id) + ":hosts") < 1:
+				self._redis.delete(self.keyBase + str(f.id))
+				self._redis.delete(self.keyBase + str(f.id) + ':hosts')
 			l.release()
 		self._registered = False
 
@@ -141,12 +141,12 @@ class FileBucket(object):
 		# TODO LOCK
 		if f.id in self._writeLocks:
 			self._writeLocks[f.id].release()
-		l = self._redis.lock(self.key_base + str(file.id) + ':lock', timeout=0.5, sleep=0.1)
+		l = self._redis.lock(self.keyBase + str(file.id) + ':lock', timeout=0.5, sleep=0.1)
 		l.acquire()
-		self._redis.srem(self.key_base + str(file.id) + ":hosts", self.host.id)
-		if self._redis.scard(self.key_base + str(file.id) + ":hosts") < 1:
-			self._redis.delete(self.key_base + str(file.id))
-			self._redis.delete(self.key_base + str(file.id) + ':hosts')
+		self._redis.srem(self.keyBase + str(file.id) + ":hosts", self.host.id)
+		if self._redis.scard(self.keyBase + str(file.id) + ":hosts") < 1:
+			self._redis.delete(self.keyBase + str(file.id))
+			self._redis.delete(self.keyBase + str(file.id) + ':hosts')
 		l.release()
 
 	def _fetchNextId(self):
@@ -160,13 +160,13 @@ class FileBucket(object):
 			data = dict()
 			for arg in args:
 				data = fileExp[arg]
-		self._redis.hmset(self.key_base + file.id, data)
+		self._redis.hmset(self.keyBase + file.id, data)
 
 	def writeLockFile(self, file):
 		if file.id in self._writeLocks:
 			return
 		# TODO LOCK
-		l = self._redis.lock(self.key_base + file.id + ':writelock')
+		l = self._redis.lock(self.keyBase + file.id + ':writelock')
 		l.acquire()
 		self._writeLocks[file.id] = l
 
@@ -190,10 +190,10 @@ class FileBucket(object):
 				fDict['path'], fDict['type'], self
 			)
 			if register:
-				l = self._redis.lock(self.key_base + str(fDict['id']) + ':lock', timeout=0.5, sleep=0.1)
+				l = self._redis.lock(self.keyBase + str(fDict['id']) + ':lock', timeout=0.5, sleep=0.1)
 				l.acquire()
-				self._redis.hmset(self.key_base + str(fDict['id']), fDict)
-				self._redis.sadd(self.key_base + str(fDict['id']) + ":hosts", self.host.id)
+				self._redis.hmset(self.keyBase + str(fDict['id']), fDict)
+				self._redis.sadd(self.keyBase + str(fDict['id']) + ":hosts", self.host.id)
 				l.release()
 
 	def exportJSON(self, f):
