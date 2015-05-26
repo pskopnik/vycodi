@@ -31,6 +31,15 @@ def storeJSONData(file, data):
 		with open(file, 'w') as f:
 			json.dump(data, f, separators=(',', ':'))
 
+def loadJSONField(d, name, default=None):
+	try:
+		return json.loads(d[name])
+	except (KeyError, ValueError):
+		return default
+
+def storeJSONField(d, name, data):
+	d[name] = json.dumps(data, separators=(',', ':'))
+
 def ensureJSONData(filePath, default):
 	if not exists(filePath):
 		storeJSONData(filePath, default)

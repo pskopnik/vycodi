@@ -1,4 +1,4 @@
-from vycodi.utils import decodeRedis
+from vycodi.utils import decodeRedis, loadJSONField, storeJSONField
 from vycodi.httpclient import File
 
 class Queue(object):
@@ -26,6 +26,8 @@ class Queue(object):
 				timeout=timeout
 			)
 		task = self._taskLoader[taskId]
+		task.worker = worker.id
+		self._redis.lpush('vycodi:worker:' + worker.id + ':tasks', worker.id)
 
 	def enqueue(self, task):
 		self._redis.lpush('vycodi:queue:' + self.id, task.id)
@@ -51,6 +53,7 @@ class Queue(object):
 class Batch(object):
 	pass
 
+
 class TaskLoaderException(Exception):
 	pass
 
@@ -70,6 +73,8 @@ class QeueueNotSet(QueueException):
 
 
 class TaskLoader(object):
+	keyBase = 'vycodi:task:'
+
 	def __init__(self, redis):
 		self._redis = redis
 
@@ -97,7 +102,7 @@ class TaskLoader(object):
 		if task.id is None:
 			task.id = self._fetchNextId()
 		taskDict = task.exportRedis()
-		keyBase = 'vycodi:task:' + str(task.id)
+		keyBase = self.keyBase + str(task.id)
 		self._redis.hmset(keyBase, taskDict)
 		self._redis.rpush(keyBase + ':infiles', *task.inFiles)
 		self._redis.rpush(keyBase + ':outfiles', *task.outFiles)
@@ -106,80 +111,108 @@ class TaskLoader(object):
 	def loadInFiles(self, task):
 		if isinstance(task, Task):
 			task = task.id
-		return self._redis.lrange('vycodi:task:' + str(task) + ':infiles', 0, -1)
+		return self._redis.lrange(self.keyBase + str(task) + ':infiles', 0, -1)
 
 	def loadOutFiles(self, task):
 		if isinstance(task, Task):
 			task = task.id
-		return self._redis.lrange('vycodi:task:' + str(task) + ':outfiles', 0, -1)
+		return self._redis.lrange(self.keyBase + str(task) + ':outfiles', 0, -1)
 
 	def addInFile(self, task, file):
 		if isinstance(task, Task):
 			task = task.id
 		if isinstance(file, File):
 			file = file.id
-		return self._redis.rpush('vycodi:task:' + str(task) + ':infiles', file)
+		return self._redis.rpush(self.keyBase + str(task) + ':infiles', file)
 
 	def addOutFile(self, task, file):
 		if isinstance(task, Task):
 			task = task.id
 		if isinstance(file, File):
 			file = file.id
-		return self._redis.rpush('vycodi:task:' + str(task) + ':outfiles', file)
+		return self._redis.rpush(self.keyBase + str(task) + ':outfiles', file)
+
+	def updateTask(self, task, *args):
+		taskExp = task.exportRedis()
+		if len(args) == 0:
+			data = taskExp
+		else:
+			data = dict()
+			for arg in args:
+				data = taskExp[arg]
+		self._redis.hmset(self.keyBase + task.id, data)
 
 	def _fetchNextId(self):
 		return self._redis.incr('vycodi:tasks:index')
 
 class Task(object):
-	def __init__(self, id=None, queue=None, processor=None, payload=None,
-					batch=None, loader=None):
-		self.id = id
-		self.batch = batch
+	def __init__(self, id=None, queue=None, worker=None, processor=None,
+					payload=None, batch=None, loader=None):
+		self._id = id
 		self._queue = queue
-		self.processor = processor
-		self.payload = payload
+		self._worker = worker
+		self._batch = batch
+		self._processor = processor
+		self._payload = payload
 		self._loader = loader
-		self._inFiles = None
-		self._outFiles = None
+		self.__inFiles = None
+		self.__outFiles = None
 		self._registered = False
+
+	def __getattr__(self, key):
+		if not key.startswith('_'):
+			return self.__getattribute__('_' + key)
+		else:
+			return self.__getattribute__(key)
+
+	def __setattr__(self, key, value):
+		if not key.startswith('_') and hasattr(self, '_' + key):
+			super(Task, self).__setattr__('_' + key, value)
+			if self._registered:
+				try:
+					self._loader.updateTask(self, (key,))
+				except AttributeError:
+					raise LoaderNotSet()
+		else:
+			super(Task, self).__setattr__(key, value)
 
 	@property
 	def inFiles(self):
-		if self._inFiles is None:
+		if self.__inFiles is None:
 			if self._registered:
 				if self._loader is not None:
-					self._inFiles = self._loader.loadInFiles(self)
+					self.__inFiles = self._loader.loadInFiles(self)
 				else:
 					raise LoaderNotSet()
 			else:
-				self._inFiles = []
-		return self._inFiles
+				self.__inFiles = []
+		return self.__inFiles
 
 	@inFiles.setter
 	def inFiles(self, inFiles):
 		if self._registered:
 			raise Exception("Can't set inFiles for registered task")
 		else:
-			self._inFiles = inFiles
+			self.__inFiles = inFiles
 
 	@property
 	def outFiles(self):
-		if self._outFiles is None:
+		if self.__outFiles is None:
 			if self._registered:
 				if self._loader is not None:
-					self._outFiles = self._loader.loadOutFiles(self)
+					self.__outFiles = self._loader.loadOutFiles(self)
 				else:
 					raise LoaderNotSet()
 			else:
-				self._outFiles = []
-		return self._outFiles
+				self.__outFiles = []
+		return self.__outFiles
 
 	@outFiles.setter
 	def outFiles(self, outFiles):
 		if self._registered:
 			raise Exception("Can't set outFiles for registered task")
 		else:
-			self._outFiles = outFiles
+			self.__outFiles = outFiles
 
 	def register(self, loader=None):
 		if loader is not None:
@@ -219,7 +252,15 @@ class Task(object):
 
 	def exportRedis(self):
 		taskDict = dict()
-		taskDict['id'] = self.id
+		taskDict['id'] = self._id
+		taskDict['queue'] = self._queue
+		taskDict['worker'] = self._worker
+		if self._processor is not None:
+			taskDict['processor'] = self._processor
+		if self._batch is not None:
+			taskDict['batch'] = self._batch
+		if self._payload is not None:
+			storeJSONField(taskDict, 'payload', self._payload)
 		return taskDict
 
 	@staticmethod
@@ -227,10 +268,11 @@ class Task(object):
 		taskDict = decodeRedis(taskDict)
 		task = Task(
 			id=int(taskDict['id']),
+			queue=taskDict['queue'],
+			worker=taskDict.get('worker', None),
 			processor=taskDict.get('processor', None),
-			queue=taskDict.get('queue', None),
 			batch=taskDict.get('batch', None),
-			payload=taskDict.get('payload', None),
+			payload=loadJSONField(taskDict, 'payload', default={}),
 			loader=loader
 		)
 		task._registered = True
@@ -249,7 +291,10 @@ class TaskProcessIntent(object):
 		return self._task
 
 	def __exit__(self, exc_type, exc_value, traceback):
-		if issubclass(exc_type, ProcessingException):
-			return True
+		if exc_type is None:
+			pass
 		else:
-			return False
+			if issubclass(exc_type, ProcessingException):
+				return True
+			else:
+				return False
