@@ -3,7 +3,7 @@ from vycodi.httpserver import Server as HTTPServer
 from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, ensureJSONData, storeJSONData, loadJSONData
 from vycodi.jsonrpc import RPCClient, Server as RPCServer, Dispatcher, JSONRPCDispatchException
-from os.path import join, abspath, exists
+from os.path import join, abspath, exists, dirname
 from os import mkdir, access, R_OK, W_OK
 from io import IOBase
 from threading import Thread
@@ -157,14 +157,14 @@ class HostRPCServer(Thread):
 					message="Invalid type supplied"
 				)
 			mode = W_OK if type in ('w',) else R_OK
-			if not access(path, mode):
+			if not (access(path, mode) or (mode == W_OK and access(dirname(path), mode))):
 				raise JSONRPCDispatchException(
 					code=111,
 					message="Path not accessible"
 				)
 			f = File(None, name, path, type)
 			self._host.bucket.add(f)
-			self._logger.info("Added file %s - %s", f.id, f.name)
+			self._logger.info("Added file %s - %s @ %s", f.id, f.name, f.path)
 			return f.id
 		return addFile
 

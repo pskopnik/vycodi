@@ -24,7 +24,10 @@ class File(object):
 
 	@id.setter
 	def id(self, id):
-		self._id = int(id)
+		if id is None:
+			self._id = None
+		else:
+			self._id = int(id)
 
 	@property
 	def type(self):

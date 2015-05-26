@@ -1,6 +1,7 @@
 import requests
 from vycodi.utils import decodeRedis
 from os.path import abspath
+from io import IOBase
 
 class FileLoaderException(Exception):
 	pass
@@ -42,18 +43,24 @@ class File(object):
 		self.path = path
 		self.loader = loader
 
-	def download(self, path=None):
+	def download(self, file=None):
 		if self.loader is None:
 			raise LoaderNotSet()
-		if path is not None:
-			self.path = path
+		if file is not None:
+			if isinstance(file, IOBase):
+				self.loader.download(self.id, file)
+				return
+			self.path = file
 		self.loader.download(self.id, self.path)
 
-	def upload(self, path=None):
+	def upload(self, file=None):
 		if self.loader is None:
 			raise LoaderNotSet()
-		if path is not None:
-			self.path = path
+		if file is not None:
+			if isinstance(file, IOBase):
+				self.loader.upload(self.id, file)
+				return
+			self.path = file
 		self.loader.upload(self.id, self.path)
 
 	def open(self, *args, **kwargs):
@@ -68,6 +75,9 @@ class FileLoader(object):
 		if pool is None:
 			pool = ClientPool()
 		self._pool = pool
+
+	def __getitem__(self, key):
+		return self.getFile(key)
 
 	def download(self, id, outF):
 		f = self.getFile(id, fObj=outF)
