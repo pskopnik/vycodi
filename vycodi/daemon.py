@@ -27,7 +27,7 @@ class Daemon(mattdaemon.daemon):
 		self._setupLogging()
 		try:
 			self._run(*args, **kwargs)
-		except Exception:
+		except:
 			self._logger.error("Exception during execution", exc_info=True)
 			self._logger.error("Self destructing...")
 			os.kill(os.getpid(), signal.SIGTERM)

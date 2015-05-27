@@ -49,10 +49,7 @@ class Host(object):
 		self._rpcAddress = rpcAddress
 		self._rpcServer = None
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-		if id is None:
-			self.id = self._fetchNextId()
-		else:
-			self.id = id
+		self.id = id or self._fetchNextId()
 		if bucket is None:
 			self.bucket = FileBucket(redis, self)
 		elif isinstance(bucket, str) or isinstance(bucket, IOBase):
@@ -117,6 +114,7 @@ class Host(object):
 	def _register(self):
 		self._logger.info("Registering...")
 		self._redis.hmset('vycodi:host:' + str(self.id), {
+			'id': self.id,
 			'address': self._address[0],
 			'port': self._address[1]
 		})
