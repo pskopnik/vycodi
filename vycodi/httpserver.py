@@ -22,7 +22,7 @@ class Server(Thread):
 		self._server.serve_forever()
 
 	def shutdown(self):
-		self._logger.info("Shutting...")
+		self._logger.info("Shutting down...")
 		self._server.shutdown()
 
 
