@@ -43,3 +43,9 @@ class Daemon(mattdaemon.daemon):
 			signal.pause()
 		except KeyboardInterrupt:
 			self._shutdown()
+
+	def _run(self, *args, **kwargs):
+		pass
+
+	def _shutdown(self, *args, **kwargs):
+		pass
