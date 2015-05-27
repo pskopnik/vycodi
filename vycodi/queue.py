@@ -1,5 +1,12 @@
 from vycodi.utils import decodeRedis, loadJSONField, storeJSONField
 from vycodi.httpclient import File
+import queue
+import time
+
+class QueueTimeout(queue.Empty):
+	def __init__(self):
+		super(QueueTimeout, self).__init__()
+
 
 class Queue(object):
 	def __init__(self, id, redis):
@@ -10,44 +17,89 @@ class Queue(object):
 	def reserveTask(self, worker, timeout=0):
 		"""Fetches and reserves the next queue in the task for the
 		passed in worker
-		timeout resembles socket.socket.settimeout()
+		timeout value resembles socket.socket.settimeout()
+		If
 		"""
 		if timeout is 0:
 			taskId = self._redis.rpoplpush(
-				'vycodi:queue:' + self.id,
-				'vycodi:queue:' + self.id + ':working'
+				'vycodi:queue:' + str(self.id),
+				'vycodi:queue:' + str(self.id) + ':working'
 			)
 		else:
 			if timeout is None:
 				timeout = 0
+			if not (isinstance(timeout, int)
+				or (isinstance(timeout, float) and timeout.is_integer())):
+				raise TypeError('timeout must be an integer value')
 			taskId = self._redis.brpoplpush(
-				'vycodi:queue:' + self.id,
-				'vycodi:queue:' + self.id + ':working',
+				'vycodi:queue:' + str(self.id),
+				'vycodi:queue:' + str(self.id) + ':working',
 				timeout=timeout
 			)
+		if taskId is None:
+			raise QueueTimeout()
 		task = self._taskLoader[taskId]
 		task.worker = worker.id
-		self._redis.lpush('vycodi:worker:' + worker.id + ':tasks', worker.id)
+		self._redis.lpush('vycodi:worker:' + str(worker.id) + ':working', task.id)
+		return task
 
 	def enqueue(self, task):
-		self._redis.lpush('vycodi:queue:' + self.id, task.id)
 		task.queue = self.id
+		self._taskLoader.registerTask(task)
+		self._redis.lpush('vycodi:queue:' + str(self.id), task.id)
 
-	@staticmethod
+	@classmethod
 	def getAll(cls, redis):
 		queues = []
 		for qId in redis.smembers('vycodi:queues'):
 			queues.append(Queue(qId.decode('utf-8'), redis))
 		return queues
 
-	@staticmethod
+	@classmethod
 	def get(cls, queueId, redis):
-		redis.sadd(queueId)
+		redis.sadd('vycodi:queues', queueId)
 		return Queue(queueId, redis)
 
-	@staticmethod
+	@classmethod
 	def enqueue(cls, task, redis):
 		cls.get(task.queue, redis).enqueue(task)
+
+
+class QueueWatcher(object):
+	def __init__(self, redis, worker, queues=[]):
+		self._worker = worker
+		self._redis = redis
+		self._queues = []
+		for queue in queues:
+			if not isinstance(queue, Queue):
+				queue = Queue.get(queue, self._redis)
+			self._queues.append(queue)
+
+	def addQueue(self, queue):
+		if not isinstance(queue, Queue):
+			queue = Queue.get(queue, self._redis)
+		self._queues.append(queue)
+
+	def reserveTask(self, timeout=None, wait=0.1):
+		if timeout is not None:
+			start = time.perf_counter()
+		while True:
+			try:
+				return self._fetchFromQueues(self._worker)
+			except QueueTimeout:
+				if timeout is not None and time.perf_counter() > start + timeout:
+					raise
+				time.sleep(wait)
+
+	def _fetchFromQueues(self, worker):
+		"""Tries to reserve a task from any queue (in self._queues)
+		"""
+		for queue in self._queues:
+			try:
+				return queue.reserveTask(self._worker)
+			except QueueTimeout:
+				pass
+		raise QueueTimeout()
 
 
 class Batch(object):
@@ -104,8 +156,10 @@ class TaskLoader(object):
 		taskDict = task.exportRedis()
 		keyBase = self.keyBase + str(task.id)
 		self._redis.hmset(keyBase, taskDict)
-		self._redis.rpush(keyBase + ':infiles', *task.inFiles)
-		self._redis.rpush(keyBase + ':outfiles', *task.outFiles)
+		if not len(self.task.inFiles) == 0:
+			self._redis.rpush(keyBase + ':infiles', *task.inFiles)
+		if not len(self.task.outFiles) == 0:
+			self._redis.rpush(keyBase + ':outfiles', *task.outFiles)
 		task._registered = True
 
 	def loadInFiles(self, task):
@@ -139,8 +193,13 @@ class TaskLoader(object):
 		else:
 			data = dict()
 			for arg in args:
-				data = taskExp[arg]
-		self._redis.hmset(self.keyBase + task.id, data)
+				try:
+					data[arg] = taskExp[arg]
+				except KeyError:
+					pass
+			if len(data) == 0:
+				return
+		self._redis.hmset(self.keyBase + str(task.id), data)
 
 	def _fetchNextId(self):
 		return self._redis.incr('vycodi:tasks:index')
@@ -170,11 +229,19 @@ class Task(object):
 			super(Task, self).__setattr__('_' + key, value)
 			if self._registered:
 				try:
-					self._loader.updateTask(self, (key,))
+					self._loader.updateTask(self, key)
 				except AttributeError:
 					raise LoaderNotSet()
 		else:
 			super(Task, self).__setattr__(key, value)
+
+	def register(self, loader=None):
+		if loader is not None:
+			self._loader = loader
+		try:
+			self._loader.registerTask(self)
+		except AttributeError:
+			raise LoaderNotSet()
 
 	@property
 	def inFiles(self):
@@ -193,7 +260,13 @@ class Task(object):
 		if self._registered:
 			raise Exception("Can't set inFiles for registered task")
 		else:
-			self.__inFiles = inFiles
+			fileIds = []
+			for file in inFiles:
+				if isinstance(file, File):
+					fileIds.append(file.id)
+				else:
+					fileIds.append(file)
+			self.__inFiles = fileIds
 
 	@property
 	def outFiles(self):
@@ -212,15 +285,13 @@ class Task(object):
 		if self._registered:
 			raise Exception("Can't set outFiles for registered task")
 		else:
-			self.__outFiles = outFiles
-
-	def register(self, loader=None):
-		if loader is not None:
-			self._loader = loader
-		try:
-			self._loader.register(self)
-		except AttributeError:
-			raise LoaderNotSet()
+			fileIds = []
+			for file in outFiles:
+				if isinstance(file, File):
+					fileIds.append(file.id)
+				else:
+					fileIds.append(file)
+			self.__outFiles = fileIds
 
 	def enqueue(self, queue=None, loader=None):
 		if loader is not None:
@@ -263,7 +334,7 @@ class Task(object):
 			storeJSONField(taskDict, 'payload', self._payload)
 		return taskDict
 
-	@staticmethod
+	@classmethod
 	def fromRedisDict(cls, taskDict, loader):
 		taskDict = decodeRedis(taskDict)
 		task = Task(
@@ -276,25 +347,4 @@ class Task(object):
 			loader=loader
 		)
 		task._registered = True
-
-
-class ProcessingException(Exception):
-	pass
-
-
-class TaskProcessIntent(object):
-	def __init__(self, task, worker):
-		self._task = task
-		self._worker = worker
-
-	def __enter__(self):
-		return self._task
-
-	def __exit__(self, exc_type, exc_value, traceback):
-		if exc_type is None:
-			pass
-		else:
-			if issubclass(exc_type, ProcessingException):
-				return True
-			else:
-				return False
+		return task
