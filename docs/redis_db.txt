@@ -1,0 +1,66 @@
+
+#########
+# All lists of task ids are lpush,
+# all other lists are rpush
+#########
+
+vycodi:
+	files:index					Greatest file index
+	file:<id>					HashMap
+									- id		Identifier
+									- name		String (file name)
+									- type		String "r" | "w" | "l"
+	file:<id>:
+		hosts					Set of host ids
+		lock					Lock
+		writelock				Lock
+
+	hosts						Set of host id
+	hosts:index					Greatest host index
+	host:<id>					HashMap
+									- address	String (ip address)
+									- port		String (int port)
+
+	queues						Set of queue ids
+	queue:<id>					List of task ids
+	queue:<id>:
+		working					List of task ids
+?		finished				List of task ids
+		failed					List of task ids
+
+	batches						Set of batch ids
+	batches:index				Greatest batch id
+	batch:<id>					HashMap
+									- address	String (ip address)
+	batch:<id>:
+		tasks					List of task ids
+		tasks:working			List of task ids
+		tasks:finished			List of task ids
+		tasks:failed			List of task ids
+
+	tasks:index					Greatest task index
+	task:<id>					HashMap
+									- id		Identifier
+									- queue		Queue id
+									- batch		Batch id, optional
+									- processor	String
+									- worker	Worker id
+									- payload	JSON encoded
+	task:<id>:
+		infiles					List of file ids
+		outfiles				List of file ids
+		result					HashMap
+									[unspecified]
+									- result	JSON encoded
+		failures				List of failure ids
+		failure:<id>			HashMap
+									- id		Identifier
+									- type		String
+									- message	String, optional
+
+	workers						Set of worker ids
+	workers:index				Greatest worker id
+	worker:<id>					HashMap
+									- id		Identifier
+	worker:<id>:
+		working					List of task id
