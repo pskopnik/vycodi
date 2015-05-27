@@ -1,10 +1,11 @@
 from vycodi.httpclient import FileLoader
 from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, storeJSONData, loadJSONData
-from vycodi.queue import QueueWatcher, QueueTimeout
+from vycodi.queue import QueueWatcher, QueueTimeout, Task
 from vycodi.processor import ProcessorLoader, ProcessingManager
 from tempfile import TemporaryDirectory
 from os.path import join
+from shutil import rmtree, Error
 from threading import Thread
 import logging
 
@@ -74,7 +75,7 @@ class WorkerThread(Thread):
 		self._logger = logging.getLogger(
 			"%s.%s[%s]" % (__name__, self.__class__.__name, self.name))
 		self._worker = worker
-		self._processingManager = ProcessingManager(worker.processorLoader)
+		self._processingManager = ProcessingManager(worker, logger=self._logger)
 		self._shouldStop = False
 
 	def signalStopIntent(self):
@@ -88,24 +89,20 @@ class WorkerThread(Thread):
 				continue
 			self._processingManager.processTask(task)
 
+
 class Worker(object):
-	def __init__(self, redis, id=None, queues=[], pool=None):
+	def __init__(self, redis, runDir, id=None, queues=[], pool=None, policy=None):
 		self._redis = redis
-		if pool is None:
-			self._pool = WorkerThreadPool()
-		else:
-			self._pool = pool
+		self._runDir = runDir
+		self._pool = pool or WorkerThreadPool()
+		self.policy = policy or DefaultPolicy()
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-		if id is None:
-			id = self._fetchNextId()
-		self.id = id
+		self.id = id or self._fetchNextId()
 		self._registered = False
 		self._taskRunDirs = {}
 		self.queueWatcher = QueueWatcher(redis, self, queues=queues)
 		self.processorLoader = ProcessorLoader(redis)
 		self.fileLoader = FileLoader(redis)
-		# TODO sideeffect
-		self.runDir = TemporaryDirectory()
 
 	def start(self):
 		self._logger.info("Starting...")
@@ -118,20 +115,36 @@ class Worker(object):
 		self._logger.info("Shutting down...")
 		self._unregister()
 		self._pool.shutdown()
+		if len(self._taskRunDirs) != 0:
+			self._logger.warn("Task run dirs left")
+			for taskId in self._taskRunDirs:
+				self.cleanupTaskDir(taskId)
 
 	def crtTaskDir(self, task):
 		if task.id in self._taskRunDirs:
 			return self._taskRunDirs[task.id]
-		path = join(self.runDir.name, 'task.%s' % task.id)
+		path = join(self._runDir, 'task.%s' % task.id)
 		task.runDir = path
 		self._taskRunDirs[task.id] = path
 		return path
 
+	def cleanupTaskDir(self, task):
+		if isinstance(task, Task):
+			task = task.id
+		if task not in self._taskRunDirs:
+			return
+		try:
+			rmtree(self._taskRunDirs[task])
+			del self._taskRunDirs[task]
+		except Error:
+			self._logger.error(
+				"Error deleting task run dir for task '%s'" % task,
+				exc_info=True)
+
 	def _register(self):
 		self._logger.info("Registering...")
 		self._redis.hmset('vycodi:worker:' + str(self.id), {
-			'address': self._address[0],
-			'port': self._address[1]
+			'id': self.id
 		})
 		self._redis.sadd('vycodi:workers', self.id)
 		self._registered = True
@@ -165,3 +178,42 @@ class Worker(object):
 		if workerId is None:
 			storeJSONData(join(runDir, 'data.json'), {'workerId': worker.id})
 		return worker
+
+
+class Policy(object):
+	"""Describes policy regarding different job-queue system aspects,
+	mostly failure handling and cleanup
+	One instance is kept by a worker
+	"""
+	def __init__(self, worker):
+		self.worker = worker
+
+	def requeueAfterFailure(self, task, failure):
+		"""Called after a failure occured
+		Return boolean; whether the task should be re-queued
+		"""
+		pass
+
+	def storeFailedTask(self, task, failure):
+		"""Called after a failure occurred and requeueAfterFailure
+		evaluated to True
+		Return boolean; whether the task should be added to ...<queue>:failed
+		"""
+		pass
+
+	def storeFinishedTask(self, task):
+		"""Called after a task was successfully processed
+		Return boolean; whether the task should be added to ...<queue>:finished
+		"""
+		pass
+
+
+class DefaultPolicy(Policy):
+	def requeueAfterFailure(self, task, failure):
+		return len(task.failures) < 5
+
+	def storeFailedTask(self, task, failure):
+		return True
+
+	def storeFinishedTask(self, task):
+		return True
