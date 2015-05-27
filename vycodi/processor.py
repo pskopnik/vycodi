@@ -1,13 +1,21 @@
+from vycodi.queue import Failure
 from os.path import join
 from importlib import import_module
+import logging
 
 class ProcessingException(Exception):
 	pass
 
 
 def ProcessingManager(object):
-	def __init__(self, processorLoader):
-		self._processorLoader = processorLoader
+	def __init__(self, worker, logger=None):
+		self._worker = worker
+		self._processorLoader = worker.processorLoader
+		self._policy = worker.policy
+		if logger is None:
+			self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+		else:
+			self._logger = logger
 		self._processors = {}
 
 	def processTask(self, task):
@@ -15,65 +23,69 @@ def ProcessingManager(object):
 			proc = self._processorLoader.init(task.processor, cache=self._processors)
 		except ImportError as e:
 			# TODO
-			# Log error
-			# Create new failure
-			# Failure type = unknown processor
-			# Store failure
-			# requeue
-			pass
+			self._logger.warn(
+				"Couldn't import processor '%s' for task '%s': %s"
+				% (task.processor, task.id, e))
+			failure = Failure('UnknownProcessor', message=str(e))
+			task.addFailure(failure)
+			self.requeueTask(task, failure)
 		except ProcessingException as e:
 			# TODO
-			# Log info
-			# Create new failure
-			# Failure type = processing exception
-			# Failure exception = exception message
-			# Store failure
-			# requeue conditionally
-			pass
+			self._logger.warn(
+				"ProcessingException during intialisation for task '%s': %s: %s"
+				% (task.id, e.__name__, e))
+			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
+			task.addFailure(failure)
+			if e.requeue:
+				self.requeueTask(task, failure)
 		except:
 			# TODO
-			# Log error with exception
-			# Create new failure
-			# Failure type = init exception
-			# Failure exception = exception message
-			# Store failure
-			# requeue
-			pass
+			self._logger.error(
+				"Exception during intialisation for task '%s': %s: %s"
+				% (task.id, e.__name__, e), exc_info=True)
+			failure = Failure('InitException', message="%s: %s" % (e.__name__, e))
+			task.addFailure(failure)
+			self.requeueTask(task, failure)
 
 		try:
 			proc.processTask(task)
 		except ProcessingException:
 			# TODO
-			# Log warn
-			# Create new failure
-			# Failure type = processing exception
-			# Store failure
-			# requeue
-			pass
+			self._logger.warn(
+				"ProcessingException during execution of task '%s': %s: %s"
+				% (task.id, e.__name__, e))
+			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
+			task.addFailure(failure)
+			if e.requeue:
+				self.requeueTask(task, failure)
 		except:
 			# TODO
-			# Log error with exception
-			# Create new failure
-			# Failure type = runtime exception
-			# Failure exception = exception message
-			# Store failure
-			# requeue conditionally
-			pass
+			self._logger.error(
+				"Exception during execution of task '%s': %s: %s"
+				% (task.id, e.__name__, e), exc_info=True)
+			failure = Failure('Exception', message="%s: %s" % (e.__name__, e))
+			task.addFailure(failure)
+			self.requeueTask(task, failure)
 		else:
 			# TODO
 			# Log info
 			# Add to #queue:.:finished
 			# Remove from #queue:.:working # lrem(name, value, num=-1)
 			pass
+
+		self._worker.cleanupTaskDir(task)
+
 		# TODO
 		# Remove from #worker:.:working # lrem(name, value, num=-1)
 
-		# TODO requeue
-		# Set worker to None
-		# If |failures| < threshold
-		# 	Add to #queue
-		# Else
-		# 	Add to #queue:.:failed
+	def requeueTask(self, task, failure):
+		if self._policy.requeueAfterFailure(task, failure):
+			# Add to #queue
+			pass
+		else:
+			if self._policy.storeFailedTask(task, failure):
+				# Add to #queue:.:failed
+				pass
 
 
 class ClassWrapper(object):

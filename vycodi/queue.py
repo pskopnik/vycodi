@@ -162,6 +162,23 @@ class TaskLoader(object):
 			self._redis.rpush(keyBase + ':outfiles', *task.outFiles)
 		task._registered = True
 
+	def loadFailures(self, task):
+		failures = []
+		for failureId in self._redis.lrange(self.keyBase + str(task) + ':failures', 0, -1):
+			failureDict = self._redis.hgetall(
+				self.keyBase + str(task) + ':failure:' + failureId.decode('utf-8'))
+			failures.append(Failure.fromRedisDict(failureDict))
+
+		return failures
+
+	def addFailure(self, task, failure):
+		failure.id = int(self._redis.llen(self.keyBase + str(task) + ':failures')) + 1
+		self._redis.hmset(
+			self.keyBase + str(task) + ':failure:' + str(failure.id),
+			failure.exportRedis()
+		)
+		self._redis.rpush(self.keyBase + str(task) + ':failures', failure.id)
+
 	def loadInFiles(self, task):
 		if isinstance(task, Task):
 			task = task.id
@@ -185,6 +202,17 @@ class TaskLoader(object):
 		if isinstance(file, File):
 			file = file.id
 		return self._redis.rpush(self.keyBase + str(task) + ':outfiles', file)
+
+	def loadResult(self, task):
+		if isinstance(task, Task):
+			task = task.id
+		return self._redis.hgetall(self.keyBase + str(task) + ':result')
+
+	def storeResult(self, task, result):
+		if isinstance(task, Task):
+			task = task.id
+		resDict = self._redis.hmset(self.keyBase + str(task) + ':result', result)
+		return decodeRedis(resDict)
 
 	def updateTask(self, task, *args):
 		taskExp = task.exportRedis()
@@ -216,6 +244,7 @@ class Task(object):
 		self._loader = loader
 		self.__inFiles = None
 		self.__outFiles = None
+		self.__result = None
 		self._registered = False
 
 	def __getattr__(self, key):
@@ -242,6 +271,22 @@ class Task(object):
 			self._loader.registerTask(self)
 		except AttributeError:
 			raise LoaderNotSet()
+
+	@property
+	def failures(self):
+		if self.__failures is None:
+			if self._registered:
+				if self._loader is not None:
+					self.__failures = self._loader.loadFailures(self)
+				else:
+					raise LoaderNotSet()
+			else:
+				self.__failures = []
+		return self.__failures
+
+	@failures.setter
+	def failures(self, failures):
+		raise Exception("Can't set failures for task")
 
 	@property
 	def inFiles(self):
@@ -293,6 +338,27 @@ class Task(object):
 					fileIds.append(file)
 			self.__outFiles = fileIds
 
+	@property
+	def result(self):
+		if self.__result is None:
+			if self._registered:
+				if self._loader is not None:
+					self.__result = self._loader.loadResult(self)
+				else:
+					raise LoaderNotSet()
+			else:
+				self.__result = {}
+		return self.__result
+
+	@result.setter
+	def result(self, result):
+		if self._registered:
+			if self._loader is not None:
+				self._loader.storeResult(self, result)
+			else:
+				raise LoaderNotSet()
+		self.__result = result
+
 	def enqueue(self, queue=None, loader=None):
 		if loader is not None:
 			self._loader = loader
@@ -300,6 +366,15 @@ class Task(object):
 			self._loader.enqueueTask(self, queue=queue)
 		except AttributeError:
 			raise LoaderNotSet()
+
+	def addFailure(self, failure):
+		failure.task = self
+		self.failures.append(failure)
+		if self._registered:
+			try:
+				self._loader.addFailure(task, failure)
+			except AttributeError:
+				raise LoaderNotSet()
 
 	def addInFile(self, file):
 		if isinstance(file, File):
@@ -348,3 +423,27 @@ class Task(object):
 		)
 		task._registered = True
 		return task
+
+
+class Failure(object):
+	def __init__(self, type, message=None, id=None, task=None):
+		self.type = type
+		self.message = message
+		self.task = task
+
+	def exportRedis(self):
+		return {
+			'id': self.id,
+			'type': self.type,
+			'message': self.message
+		}
+
+	@classmethod
+	def fromRedisDict(cls, failureDict, task):
+		failureDict = decodeRedis(failureDict)
+		failure = Failure(
+			failureDict['type'],
+			message=failureDict['message'],
+			id=failureDict['id'],
+			task=task
+		)
