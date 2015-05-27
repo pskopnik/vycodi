@@ -49,7 +49,7 @@ class Host(object):
 		self._rpcAddress = rpcAddress
 		self._rpcServer = None
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-		self.id = id or self._fetchNextId()
+		self.id = id if id is not None else self._fetchNextId()
 		if bucket is None:
 			self.bucket = FileBucket(redis, self)
 		elif isinstance(bucket, str) or isinstance(bucket, IOBase):

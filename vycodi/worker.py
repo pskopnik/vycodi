@@ -97,7 +97,7 @@ class Worker(object):
 		self._pool = pool or WorkerThreadPool()
 		self.policy = policy or DefaultPolicy()
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-		self.id = id or self._fetchNextId()
+		self.id = id if id is not None else self._fetchNextId()
 		self._registered = False
 		self._taskRunDirs = {}
 		self.queueWatcher = QueueWatcher(redis, self, queues=queues)
@@ -185,9 +185,6 @@ class Policy(object):
 	mostly failure handling and cleanup
 	One instance is kept by a worker
 	"""
-	def __init__(self, worker):
-		self.worker = worker
-
 	def requeueAfterFailure(self, task, failure):
 		"""Called after a failure occured
 		Return boolean; whether the task should be re-queued
