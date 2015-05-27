@@ -55,11 +55,8 @@ class Host(object):
 			self.id = id
 		if bucket is None:
 			self.bucket = FileBucket(redis, self)
-		elif isinstance(bucket, str):
+		elif isinstance(bucket, str) or isinstance(bucket, IOBase):
 			self.bucket = JSONFileBucket(redis, self, bucket)
-		elif isinstance(bucket, IOBase):
-			self.bucket = FileBucket(redis, self)
-			self.bucket.loadJSON(bucket)
 		else:
 			bucket.host = self
 			self.bucket = bucket

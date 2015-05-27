@@ -203,18 +203,45 @@ class FileBucket(object):
 		storeJSONData(f, data)
 
 class JSONFileBucket(FileBucket):
-	def __init__(self, redis, host, fPath):
+	def __init__(self, redis, host, file):
 		super(JSONFileBucket, self).__init__(redis, host)
-		self._path = fPath
+		self._file = file
+		self._isPath = isinstance(file, str)
+		if not self._isPath:
+			fileName = getattr(file, 'name', None)
+			self._logFileName = " '%s'" % fileName if fileName is not None else ""
 
 	def load(self):
-		self._logger.info("Loading JSONFileBucket from '%s'...", self._path)
-		self.loadJSON(self._path, register=self._registered)
-		self._logger.info("Loaded %s files from '%s' into JSONFileBucket", len(self._files), self._path)
+		if self._isPath:
+			self._logger.info("Loading JSON from '%s'...", self._file)
+			self.loadJSON(self._file, register=self._registered)
+			self._logger.info("Loaded %s files from JSON '%s'", len(self._files), self._file)
+		else:
+			if not self._file.readable():
+				self._logger.info("Skipping loading JSON from file object%s (not readable)...",
+					self._file, self._logFileName)
+				return
+			self._logger.info("Loading JSON from file object%s...", self._file, self._logFileName)
+			self._file.seek(0)
+			self.loadJSON(self._file)
+			self._logger.info("Loaded %s files from JSON file object%s",
+				len(self._files), self._logFileName)
 
 	def store(self):
-		self._logger.info("Storing JSONFileBucket %s files to '%s'...", len(self._files), self._path)
-		self.exportJSON(self._path)
+		if self._isPath:
+			self._logger.info("Storing %s files as JSON to '%s'...", len(self._files), self._file)
+			self.exportJSON(self._file)
+		else:
+			if not f.writable():
+				self._logger.info("Skipping storing %s files to file object%s (not writable)...",
+					len(self._files), self._logFileName)
+				return
+			self._logger.info("Storing %s files as JSON to file object%s...",
+				len(self._files), self._logFileName)
+			self._file.seek(0)
+			self.exportJSON(self._file)
+			self._file.truncate()
+			self._file.flush()
 
 
 # TODO
