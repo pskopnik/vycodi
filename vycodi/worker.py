@@ -73,7 +73,7 @@ class WorkerThread(Thread):
 	def __init__(self, worker):
 		super(WorkerThread, self).__init__()
 		self._logger = logging.getLogger(
-			"%s.%s[%s]" % (__name__, self.__class__.__name, self.name))
+			"%s.%s[%s]" % (__name__, self.__class__.__name__, self.name))
 		self._worker = worker
 		self._processingManager = ProcessingManager(worker, logger=self._logger)
 		self._shouldStop = False
@@ -84,7 +84,7 @@ class WorkerThread(Thread):
 	def run(self):
 		while not self._shouldStop:
 			try:
-				task = worker.queueWatcher.reserveTask(timeout=5)
+				task = self._worker.queueWatcher.reserveTask(timeout=5)
 			except QueueTimeout:
 				continue
 			self._processingManager.processTask(task)
@@ -107,7 +107,7 @@ class Worker(object):
 	def start(self):
 		self._logger.info("Starting...")
 		if not self._pool.isInit:
-			self._pool.initPool()
+			self._pool.initPool(self)
 		self._pool.start()
 		self._register()
 
@@ -151,7 +151,6 @@ class Worker(object):
 
 	def _unregister(self):
 		self._logger.info("Unregistering...")
-		self.bucket.unregister()
 		self._redis.srem('vycodi:workers', self.id)
 		self._redis.delete('vycodi:worker:' + str(self.id))
 		self._registered = False

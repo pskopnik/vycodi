@@ -1,13 +1,14 @@
 from vycodi.queue import Failure
 from os.path import join
 from importlib import import_module
+import pkg_resources
 import logging
 
 class ProcessingException(Exception):
 	pass
 
 
-def ProcessingManager(object):
+class ProcessingManager(object):
 	def __init__(self, worker, logger=None):
 		self._worker = worker
 		self._processorLoader = worker.processorLoader
@@ -156,7 +157,7 @@ class Processor(object):
 		try:
 			procFullName = cls._procFullName
 		except AttributeError:
-			cls._procFullName = cls.__module__ + '.' cls.__name__
+			cls._procFullName = cls.__module__ + '.' + cls.__name__
 			procFullName = cls._procFullName
 		payload = {
 			"args": args,
