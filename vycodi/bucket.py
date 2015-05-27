@@ -37,7 +37,7 @@ class File(object):
 	def type(self, type):
 		self._type = type
 		if self.bucket is not None:
-			self.bucket.updateFile(self, ['type'])
+			self.bucket.updateFile(self, 'type')
 
 	def readable(self):
 		return self.type == 'r' or self.type == 'l'
@@ -216,8 +216,6 @@ class JSONFileBucket(FileBucket):
 		self._logger.info("Storing JSONFileBucket %s files to '%s'...", len(self._files), self._path)
 		self.exportJSON(self._path)
 
-	# def __del__(self):
-	# 	self.store()
 
 # TODO
 class JournaledFileBucket(JSONFileBucket):
