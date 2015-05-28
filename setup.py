@@ -28,6 +28,8 @@ setup(
 	entry_points = {
 		'console_scripts': [
 			'vycodi=vycodi.cli:main'
+		],
+		'vycodi.processors': [
 		]
 	},
 	# extras_require = {

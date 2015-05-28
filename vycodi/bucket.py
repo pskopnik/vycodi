@@ -3,6 +3,7 @@ import logging
 
 validFileTypes = ('r', 'w', 'l')
 
+
 class File(object):
 	"""File known to the system
 	id is the id of the file in the database
@@ -62,6 +63,7 @@ class File(object):
 			"name": self.name,
 			"type": self._type
 		}
+
 
 class FileBucket(object):
 	"""Bucket of File objects, accessible by id
@@ -139,8 +141,8 @@ class FileBucket(object):
 
 	def _unregisterFile(self, file):
 		# TODO LOCK
-		if f.id in self._writeLocks:
-			self._writeLocks[f.id].release()
+		if file.id in self._writeLocks:
+			self._writeLocks[file.id].release()
 		l = self._redis.lock(self.keyBase + str(file.id) + ':lock', timeout=0.5, sleep=0.1)
 		l.acquire()
 		self._redis.srem(self.keyBase + str(file.id) + ":hosts", self.host.id)
@@ -202,6 +204,7 @@ class FileBucket(object):
 			data.append(file.export())
 		storeJSONData(f, data)
 
+
 class JSONFileBucket(FileBucket):
 	def __init__(self, redis, host, file):
 		super(JSONFileBucket, self).__init__(redis, host)
@@ -232,7 +235,7 @@ class JSONFileBucket(FileBucket):
 			self._logger.info("Storing %s files as JSON to '%s'...", len(self._files), self._file)
 			self.exportJSON(self._file)
 		else:
-			if not f.writable():
+			if not self.writable():
 				self._logger.info("Skipping storing %s files to file object%s (not writable)...",
 					len(self._files), self._logFileName)
 				return

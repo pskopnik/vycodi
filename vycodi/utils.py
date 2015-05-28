@@ -3,12 +3,22 @@ from redis import StrictRedis
 from io import IOBase
 from os.path import exists
 
+
+def dumpJSON(data):
+	return json.dumps(data, separators=(',', ':'))
+
+
+def loadJSON(string):
+	return json.loads(string)
+
+
 def loadJSONConfig(file):
 	if isinstance(file, IOBase):
 		return json.load(file)
 	else:
 		with open(file, 'r') as f:
 			return json.load(f)
+
 
 def storeJSONConfig(file, data):
 	if isinstance(file, IOBase):
@@ -17,12 +27,14 @@ def storeJSONConfig(file, data):
 		with open(file, 'w') as f:
 			json.dump(data, f, indent='\t')
 
+
 def loadJSONData(file):
 	if isinstance(file, IOBase):
 		return json.load(file)
 	else:
 		with open(file, 'r') as f:
 			return json.load(f)
+
 
 def storeJSONData(file, data):
 	if isinstance(file, IOBase):
@@ -31,18 +43,22 @@ def storeJSONData(file, data):
 		with open(file, 'w') as f:
 			json.dump(data, f, separators=(',', ':'))
 
+
 def loadJSONField(d, name, default=None):
 	try:
-		return json.loads(d[name])
+		return loadJSON(d[name])
 	except (KeyError, ValueError):
 		return default
 
+
 def storeJSONField(d, name, data):
-	d[name] = json.dumps(data, separators=(',', ':'))
+	d[name] = dumpJSON(data)
+
 
 def ensureJSONData(filePath, default):
 	if not exists(filePath):
 		storeJSONData(filePath, default)
+
 
 def redisFromConfig(config):
 	host = config.get('dbhost', 'localhost')
@@ -50,6 +66,7 @@ def redisFromConfig(config):
 	db = int(config.get('dbdb', 0))
 	password = config.get('dbpassword', None)
 	return StrictRedis(host=host, port=port, db=db, password=password)
+
 
 def decodeRedis(d, encoding='utf-8', errors='strict'):
 	n = dict()

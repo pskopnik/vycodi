@@ -1,11 +1,14 @@
-from vycodi.queue import Failure
+from vycodi.queue import Failure, Task
 from os.path import join
 from importlib import import_module
 import pkg_resources
 import logging
 
+
 class ProcessingException(Exception):
-	pass
+	def __init__(self, *args, requeue=True, **kwargs):
+		super(ProcessingException, self).__init__(*args, **kwargs)
+		self.requeue = requeue
 
 
 class ProcessingManager(object):
@@ -23,63 +26,61 @@ class ProcessingManager(object):
 		try:
 			proc = self._processorLoader.init(task.processor, cache=self._processors)
 		except ImportError as e:
-			# TODO
 			self._logger.warn(
 				"Couldn't import processor '%s' for task '%s': %s"
 				% (task.processor, task.id, e))
 			failure = Failure('UnknownProcessor', message=str(e))
 			task.addFailure(failure)
-			self.requeueTask(task, failure)
+			self.requeueFailedTask(task, failure)
 		except ProcessingException as e:
-			# TODO
 			self._logger.warn(
 				"ProcessingException during intialisation for task '%s': %s: %s"
 				% (task.id, e.__name__, e))
 			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
 			if e.requeue:
-				self.requeueTask(task, failure)
+				self.requeueFailedTask(task, failure)
 		except:
-			# TODO
 			self._logger.error(
 				"Exception during intialisation for task '%s': %s: %s"
 				% (task.id, e.__name__, e), exc_info=True)
 			failure = Failure('InitException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			self.requeueTask(task, failure)
+			self.requeueFailedTask(task, failure)
 
 		try:
 			proc.processTask(task)
 		except ProcessingException:
-			# TODO
 			self._logger.warn(
 				"ProcessingException during execution of task '%s': %s: %s"
 				% (task.id, e.__name__, e))
 			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
 			if e.requeue:
-				self.requeueTask(task, failure)
+				self.requeueFailedTask(task, failure)
 		except:
-			# TODO
 			self._logger.error(
 				"Exception during execution of task '%s': %s: %s"
 				% (task.id, e.__name__, e), exc_info=True)
 			failure = Failure('Exception', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			self.requeueTask(task, failure)
+			self.requeueFailedTask(task, failure)
 		else:
 			# TODO
-			# Log info
-			# Add to #queue:.:finished
-			# Remove from #queue:.:working # lrem(name, value, num=-1)
-			pass
+			self._logger.info(
+				"Successfully processed task '%s' from queue '%s', processor '%s'"
+				% (task.id, task.queue, task.processor))
+			if self._policy.storeFinishedTask(task):
+				# Add to #queue:.:finished
+				pass
 
 		self._worker.cleanupTaskDir(task)
 
 		# TODO
+		# Remove from #queue:.:working # lrem(name, value, num=-1)
 		# Remove from #worker:.:working # lrem(name, value, num=-1)
 
-	def requeueTask(self, task, failure):
+	def requeueFailedTask(self, task, failure):
 		if self._policy.requeueAfterFailure(task, failure):
 			# Add to #queue
 			pass
@@ -120,7 +121,7 @@ class ProcessorLoader(object):
 				modName = name[:lastDot]
 				clName = name[lastDot + 1:]
 				module = import_module(modName)
-				cl = getattr(name, clName)
+				cl = getattr(module, clName)
 				if not issubclass(cl, Processor):
 					raise ImportError("Found class '%s' is not a Processor" % (name,))
 				self.processors[name] = ClassWrapper(name, cl)
@@ -172,7 +173,6 @@ class FileProcessor(Processor):
 		super(FileProcessor, self).__init__(worker)
 
 	def processTask(self, task):
-		fileLoader = self.worker.fileLoader
 		inFiles, outFiles = self._prepareFiles(task)
 		self.perform(
 			*task.payload['args'],
@@ -183,6 +183,7 @@ class FileProcessor(Processor):
 		self._uploadFiles(outFiles)
 
 	def _prepareFiles(self, task):
+		fileLoader = self.worker.fileLoader
 		self.worker.crtTaskDir(task)
 		inFiles = []
 		for fileId in task.inFiles:

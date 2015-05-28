@@ -3,6 +3,7 @@ from vycodi.utils import decodeRedis
 from os.path import abspath
 from io import IOBase
 
+
 class FileLoaderException(Exception):
 	pass
 
@@ -64,7 +65,7 @@ class File(object):
 		self.loader.upload(self.id, self.path)
 
 	def open(self, *args, **kwargs):
-		if path is None:
+		if self.path is None:
 			raise PathNotSet()
 		return open(self.path, *args, **kwargs)
 

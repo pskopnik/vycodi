@@ -10,11 +10,14 @@ import os
 import json
 import logging
 
+
 def sendBytes(sock, payload):
 	sock.sendall(payload.encode('utf-8') + b'\x00')
 
+
 def sendObj(sock, payload):
 	sendBytes(sock, json.dumps(payload, separators=(',', ':')))
+
 
 def recvBytes(sock, bufSize=1024, timeout=None):
 	if timeout is not None:
@@ -32,6 +35,7 @@ def recvBytes(sock, bufSize=1024, timeout=None):
 			raise socket.timeout()
 		respBytes += chunk
 	return respBytes.decode('utf-8')
+
 
 def recvObj(sock, bufSize=1024, timeout=None):
 	return json.loads(recvBytes(sock, bufSize=bufSize, timeout=timeout))

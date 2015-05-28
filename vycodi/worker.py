@@ -3,11 +3,12 @@ from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, storeJSONData, loadJSONData
 from vycodi.queue import QueueWatcher, QueueTimeout, Task
 from vycodi.processor import ProcessorLoader, ProcessingManager
-from tempfile import TemporaryDirectory
-from os.path import join
+from os.path import join, abspath, exists
+from os import mkdir
 from shutil import rmtree, Error
 from threading import Thread
 import logging
+
 
 class WorkerDaemon(Daemon):
 	def __init__(self, worker, *args, logFile=None, **kwargs):

@@ -6,6 +6,7 @@ import logging
 
 __version__ = "0.1"
 
+
 class Server(Thread):
 	def __init__(self, address, bucket):
 		super(Server, self).__init__()

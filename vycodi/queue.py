@@ -1,9 +1,10 @@
-from vycodi.utils import decodeRedis, loadJSONField, storeJSONField
+from vycodi.utils import decodeRedis, loadJSONField, storeJSONField, dumpJSON, loadJSON
 from vycodi.httpclient import File
-import queue
+from queue import Empty
 import time
 
-class QueueTimeout(queue.Empty):
+
+class QueueTimeout(Empty):
 	def __init__(self):
 		super(QueueTimeout, self).__init__()
 
@@ -29,7 +30,7 @@ class Queue(object):
 			if timeout is None:
 				timeout = 0
 			if not (isinstance(timeout, int)
-				or (isinstance(timeout, float) and timeout.is_integer())):
+					or (isinstance(timeout, float) and timeout.is_integer())):
 				raise TypeError('timeout must be an integer value')
 			taskId = self._redis.brpoplpush(
 				'vycodi:queue:' + str(self.id),
@@ -156,28 +157,28 @@ class TaskLoader(object):
 		taskDict = task.exportRedis()
 		keyBase = self.keyBase + str(task.id)
 		self._redis.hmset(keyBase, taskDict)
-		if not len(self.task.inFiles) == 0:
+		if not len(task.inFiles) == 0:
 			self._redis.rpush(keyBase + ':infiles', *task.inFiles)
-		if not len(self.task.outFiles) == 0:
+		if not len(task.outFiles) == 0:
 			self._redis.rpush(keyBase + ':outfiles', *task.outFiles)
+		if not len(task.failures) == 0:
+			self._redis.rpush(keyBase + ':failures',
+				*[dumpJSON(f.exportRedis()) for f in task.failures])
 		task._registered = True
 
 	def loadFailures(self, task):
 		failures = []
-		for failureId in self._redis.lrange(self.keyBase + str(task) + ':failures', 0, -1):
-			failureDict = self._redis.hgetall(
-				self.keyBase + str(task) + ':failure:' + failureId.decode('utf-8'))
-			failures.append(Failure.fromRedisDict(failureDict))
+		for failureJSON in self._redis.lrange(self.keyBase + str(task) + ':failures', 0, -1):
+			failureDict = loadJSON(failureJSON)
+			failures.append(Failure.fromDict(failureDict))
 
 		return failures
 
 	def addFailure(self, task, failure):
-		failure.id = int(self._redis.llen(self.keyBase + str(task) + ':failures')) + 1
-		self._redis.hmset(
-			self.keyBase + str(task) + ':failure:' + str(failure.id),
-			failure.exportRedis()
+		self._redis.rpush(
+			self.keyBase + str(task) + ':failures',
+			dumpJSON(failure.exportRedis())
 		)
-		self._redis.rpush(self.keyBase + str(task) + ':failures', failure.id)
 
 	def loadInFiles(self, task):
 		if isinstance(task, Task):
@@ -231,6 +232,7 @@ class TaskLoader(object):
 
 	def _fetchNextId(self):
 		return self._redis.incr('vycodi:tasks:index')
+
 
 class Task(object):
 	def __init__(self, id=None, queue=None, worker=None, processor=None,
@@ -372,7 +374,7 @@ class Task(object):
 		self.failures.append(failure)
 		if self._registered:
 			try:
-				self._loader.addFailure(task, failure)
+				self._loader.addFailure(self, failure)
 			except AttributeError:
 				raise LoaderNotSet()
 
@@ -382,7 +384,7 @@ class Task(object):
 		self.inFiles.append(file)
 		if self._registered:
 			try:
-				self._loader.addInFile(task, file)
+				self._loader.addInFile(self, file)
 			except AttributeError:
 				raise LoaderNotSet()
 
@@ -392,7 +394,7 @@ class Task(object):
 		self.outFiles.append(file)
 		if self._registered:
 			try:
-				self._loader.addOutFile(task, file)
+				self._loader.addOutFile(self, file)
 			except AttributeError:
 				raise LoaderNotSet()
 
@@ -426,24 +428,22 @@ class Task(object):
 
 
 class Failure(object):
-	def __init__(self, type, message=None, id=None, task=None):
+	def __init__(self, type, message=None, task=None):
 		self.type = type
 		self.message = message
 		self.task = task
 
 	def exportRedis(self):
 		return {
-			'id': self.id,
 			'type': self.type,
 			'message': self.message
 		}
 
 	@classmethod
-	def fromRedisDict(cls, failureDict, task):
-		failureDict = decodeRedis(failureDict)
+	def fromDict(cls, failureDict, task):
 		failure = Failure(
 			failureDict['type'],
 			message=failureDict['message'],
-			id=failureDict['id'],
 			task=task
 		)
+		return failure

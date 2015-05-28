@@ -9,6 +9,7 @@ from io import IOBase
 from threading import Thread
 import logging
 
+
 class HostDaemon(Daemon):
 	def __init__(self, host, *args, logFile=None, **kwargs):
 		super(HostDaemon, self).__init__(*args, **kwargs)
@@ -32,6 +33,7 @@ class HostDaemon(Daemon):
 		pidFile = join(runDir, 'daemon.pid')
 		logFile = join(runDir, 'daemon.log')
 		return cls(host, pidFile, *args, logFile=logFile, **kwargs)
+
 
 class Host(object):
 	"""Host for files
@@ -166,6 +168,7 @@ class HostRPCServer(Thread):
 	def shutdown(self):
 		self._logger.info("Shutting down...")
 		self._server.shutdown()
+
 
 class HostRPCClient(RPCClient):
 	def addFile(self, name, path, type):

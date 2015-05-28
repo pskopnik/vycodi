@@ -3,6 +3,7 @@ import signal
 import logging
 import os
 
+
 class Daemon(mattdaemon.daemon):
 	def __init__(self, *args, **kwargs):
 		super(Daemon, self).__init__(*args, **kwargs)
