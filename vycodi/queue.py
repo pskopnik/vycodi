@@ -61,10 +61,6 @@ class Queue(object):
 		redis.sadd('vycodi:queues', queueId)
 		return Queue(queueId, redis)
 
-	@classmethod
-	def enqueue(cls, task, redis):
-		cls.get(task.queue, redis).enqueue(task)
-
 
 class QueueWatcher(object):
 	def __init__(self, redis, worker, queues=[]):
