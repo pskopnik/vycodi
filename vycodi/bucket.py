@@ -10,14 +10,12 @@ class File(object):
 	"""File known to the system
 	id is the id of the file in the database
 	name is the name of the file, typically the last path component
-	path is the absolute path to the file on the local system
 	type is 'r' (readable, i.e. servable file), 'w' (writable, to be
 		uploaded), 'l' (locked, readable after upload)
 	"""
-	def __init__(self, id, name, path, type, bucket=None):
+	def __init__(self, id, name, type, bucket=None):
 		self.id = id
 		self.name = name
-		self.path = path
 		self._type = type
 		self.bucket = bucket
 
@@ -73,7 +71,6 @@ class File(object):
 		return {
 			"id": self.id,
 			"name": self.name,
-			"path": self.path,
 			"type": self._type
 		}
 
@@ -83,6 +80,15 @@ class File(object):
 			"name": self.name,
 			"type": self._type
 		}
+
+	@classmethod
+	def fromDict(cls, fileDict, bucket=None):
+		return cls(
+			fileDict["id"],
+			fileDict["name"],
+			fileDict["type"],
+			bucket
+		)
 
 
 class FileBucket(object):
@@ -205,26 +211,6 @@ class FileBucket(object):
 	def load(self):
 		pass
 
-	def loadJSON(self, f, register=False):
-		data = loadJSONData(f)
-		for fDict in data:
-			self._files[fDict['id']] = File(
-				fDict['id'], fDict['name'],
-				fDict['path'], fDict['type'], self
-			)
-			if register:
-				l = self._redis.lock(self.keyBase + str(fDict['id']) + ':lock', timeout=0.5, sleep=0.1)
-				l.acquire()
-				self._redis.hmset(self.keyBase + str(fDict['id']), fDict)
-				self._redis.sadd(self.keyBase + str(fDict['id']) + ":hosts", self.host.id)
-				l.release()
-
-	def exportJSON(self, f):
-		data = []
-		for file in self._files.values():
-			data.append(file.export())
-		storeJSONData(f, data)
-
 
 class JSONFileBucket(FileBucket):
 	""" JSONFileBucket
@@ -237,6 +223,24 @@ class JSONFileBucket(FileBucket):
 		if not self._isPath:
 			fileName = getattr(file, 'name', None)
 			self._logFileName = " '%s'" % fileName if fileName is not None else ""
+
+	def loadJSON(self, f, register=False):
+		data = loadJSONData(f)
+		for fDict in data:
+			fObj = self.backend.fileClass.fromDict(fDict, bucket=self)
+			self._files[fObj.id] = fObj
+			if register:
+				l = self._redis.lock(self.keyBase + str(fObj.id) + ':lock', timeout=0.5, sleep=0.1)
+				l.acquire()
+				self._redis.hmset(self.keyBase + str(fObj.id), fObj.exportRedis())
+				self._redis.sadd(self.keyBase + str(fObj.id) + ":hosts", self.host.id)
+				l.release()
+
+	def exportJSON(self, f):
+		data = []
+		for file in self._files.values():
+			data.append(file.export())
+		storeJSONData(f, data)
 
 	def load(self):
 		if self._isPath:
@@ -297,6 +301,8 @@ class BackendError(Exception):
 
 
 class Backend(object):
+	fileClass = File
+
 	def openR(self, file):
 		pass
 
@@ -316,7 +322,36 @@ class Backend(object):
 		pass
 
 
+class FileSystemFile(File):
+	def __init__(self, id, name, path, type, bucket=None):
+		"""
+		path is the absolute path to the file on the local system
+		"""
+		super(FileSystemFile, self).__init__(id, name, type, bucket=bucket)
+		self.path = path
+
+	def export(self):
+		return {
+			"id": self.id,
+			"name": self.name,
+			"path": self.path,
+			"type": self._type
+		}
+
+	@classmethod
+	def fromDict(cls, fileDict, bucket=None):
+		return cls(
+			fileDict["id"],
+			fileDict["name"],
+			fileDict["path"],
+			fileDict["type"],
+			bucket=bucket
+		)
+
+
 class FileSystemBackend(Backend):
+	fileClass = FileSystemFile
+
 	def __init__(self):
 		super(FileSystemBackend, self).__init__()
 		if not mimetypes.inited:
@@ -363,3 +398,7 @@ class FileSystemBackend(Backend):
 
 	def lastModified(self, file):
 		return os.stat(file.path).st_mtime
+
+	@classmethod
+	def fromConfig(cls, config):
+		return cls()
