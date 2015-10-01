@@ -250,11 +250,11 @@ class JSONFileBucket(FileBucket):
 		else:
 			if not self._file.readable():
 				self._logger.info("Skipping loading JSON from file object%s (not readable)...",
-					self._file, self._logFileName)
+					self._logFileName)
 				return
 			self._logger.info("Loading JSON from file object%s...", self._file, self._logFileName)
 			self._file.seek(0)
-			self.loadJSON(self._file)
+			self.loadJSON(self._file, register=self._registered)
 			self._logger.info("Loaded %s files from JSON file object%s",
 				len(self._files), self._logFileName)
 
