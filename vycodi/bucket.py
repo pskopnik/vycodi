@@ -1,5 +1,7 @@
 from vycodi.utils import loadJSONData, storeJSONData
 import logging
+import mimetypes
+import os
 
 validFileTypes = ('r', 'w', 'l')
 
@@ -49,6 +51,24 @@ class File(object):
 	def writeLock(self):
 		self.bucket.writeLockFile(self)
 
+	def openR(self):
+		self.bucket.backend.openR(self)
+
+	def openW(self):
+		self.bucket.backend.openR(self)
+
+	def genReadURL(self):
+		self.bucket.backend.genReadURL(self)
+
+	def size(self):
+		self.bucket.backend.size(self)
+
+	def contentType(self):
+		self.bucket.backend.contentType(self)
+
+	def lastModified(self):
+		self.bucket.backend.lastModified(self)
+
 	def export(self):
 		return {
 			"id": self.id,
@@ -67,18 +87,19 @@ class File(object):
 
 class FileBucket(object):
 	"""Bucket of File objects, accessible by id
-	Persistence by dumping all files as a json file
+	No persistence
 	Also registers files in the redis database
 	"""
 	keyBase = 'vycodi:file:'
 
-	def __init__(self, redis, host):
+	def __init__(self, redis, host, backend=None):
 		self._files = dict()
 		self._writeLocks = dict()
 		self._redis = redis
 		self._registered = False
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 		self.host = host
+		self.backend = backend or FileSystemBackend()
 
 	def __getitem__(self, key):
 		if isinstance(key, File):
@@ -206,8 +227,11 @@ class FileBucket(object):
 
 
 class JSONFileBucket(FileBucket):
-	def __init__(self, redis, host, file):
-		super(JSONFileBucket, self).__init__(redis, host)
+	""" JSONFileBucket
+	Persistence by dumping meta data of all files as a json file
+	"""
+	def __init__(self, redis, host, file, backend=None):
+		super(JSONFileBucket, self).__init__(redis, host, backend=backend)
 		self._file = file
 		self._isPath = isinstance(file, str)
 		if not self._isPath:
@@ -249,8 +273,8 @@ class JSONFileBucket(FileBucket):
 
 # TODO
 class JournaledFileBucket(JSONFileBucket):
-	def __init__(self, redis, host, fPath, journalPath):
-		super(JournaledFileBucket, self).__init__(redis, host, fPath)
+	def __init__(self, redis, host, fPath, journalPath, backend=None):
+		super(JournaledFileBucket, self).__init__(redis, host, fPath, backend=backend)
 		self._journalPath = journalPath
 		self._journalFile = open(journalPath, 'rw')
 
@@ -266,3 +290,76 @@ class JournaledFileBucket(JSONFileBucket):
 			self._journalFile.close()
 		except Exception:
 			pass
+
+
+class BackendError(Exception):
+	pass
+
+
+class Backend(object):
+	def openR(self, file):
+		pass
+
+	def openW(self, file):
+		pass
+
+	def genReadURL(self, file):
+		pass
+
+	def size(self, file):
+		pass
+
+	def contentType(self, file):
+		return "application/octet-stream"
+
+	def lastModified(self, file):
+		pass
+
+
+class FileSystemBackend(Backend):
+	def __init__(self):
+		super(FileSystemBackend, self).__init__()
+		if not mimetypes.inited:
+			mimetypes.init()
+		self.extensions_map = mimetypes.types_map.copy()
+		self.extensions_map.update({
+			'': 'application/octet-stream',
+			'.py': 'text/plain',
+			'.c': 'text/plain',
+			'.h': 'text/plain',
+		})
+
+	def openR(self, file):
+		try:
+			return open(file.path, 'rb')
+		except IOError as e:
+			raise BackendError(str(e))
+
+	def openW(self, file):
+		try:
+			return open(file.path, 'wb')
+		except IOError as e:
+			raise BackendError(str(e))
+
+	def genReadURL(self, file):
+		return None
+
+	def size(self, file):
+		return os.path.getsize(file.path)
+
+	def contentType(self, file):
+		"""Copy of the SimpleHTTPServer.guess_type method
+		Return value is usable for a MIME Content-Type header.
+		"""
+
+		base, ext = os.path.splitext(file.path)
+		if ext in self.extensions_map:
+			return self.extensions_map[ext]
+		ext = ext.lower()
+		if ext in self.extensions_map:
+			return self.extensions_map[ext]
+		else:
+			return self.extensions_map['']
+
+	def lastModified(self, file):
+		return os.stat(file.path).st_mtime
