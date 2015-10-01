@@ -73,9 +73,7 @@ class File(object):
 class FileLoader(object):
 	def __init__(self, redis, pool=None):
 		self._redis = redis
-		if pool is None:
-			pool = ClientPool()
-		self._pool = pool
+		self._pool = pool or ClientPool()
 
 	def __getitem__(self, key):
 		return self.getFile(key)
