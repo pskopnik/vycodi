@@ -52,8 +52,8 @@ class File(object):
 	def openR(self):
 		self.bucket.backend.openR(self)
 
-	def openW(self):
-		self.bucket.backend.openR(self)
+	def openW(self, contentLength=None):
+		self.bucket.backend.openR(self, contentLength=contentLength)
 
 	def genReadURL(self):
 		self.bucket.backend.genReadURL(self)
@@ -306,7 +306,7 @@ class Backend(object):
 	def openR(self, file):
 		pass
 
-	def openW(self, file):
+	def openW(self, file, contentLength=None):
 		pass
 
 	def genReadURL(self, file):
@@ -320,6 +320,14 @@ class Backend(object):
 
 	def lastModified(self, file):
 		pass
+
+	@classmethod
+	def fromConfig(cls, config):
+		return cls.fromBackendConfig(config.get('backend', {}))
+
+	@classmethod
+	def fromBackendConfig(cls, config):
+		return cls()
 
 
 class FileSystemFile(File):
@@ -370,7 +378,7 @@ class FileSystemBackend(Backend):
 		except IOError as e:
 			raise BackendError(str(e))
 
-	def openW(self, file):
+	def openW(self, file, contentLength=None):
 		try:
 			return open(file.path, 'wb')
 		except IOError as e:
@@ -398,7 +406,3 @@ class FileSystemBackend(Backend):
 
 	def lastModified(self, file):
 		return os.stat(file.path).st_mtime
-
-	@classmethod
-	def fromConfig(cls, config):
-		return cls()
