@@ -101,13 +101,26 @@ class Host(object):
 		bucketFile = join(runDir, 'bucket.json')
 		ensureJSONData(bucketFile, [])
 
+		backendConf = config.get('backend', {})
+		backendType = backendConf.get('backend', 'filesystem')
+		if backendType == 'filesystem':
+			from vycodi.bucket import FileSystemBackend
+			backend = FileSystemBackend.fromBackendConfig(backendConf)
+		elif backendType == 's3':
+			from vycodi.s3backend import S3Backend
+			backend = S3Backend.fromBackendConfig(backendConf)
+		else:
+			raise ValueError("Unknown backendType '{}'".format(backendType))
+
+		bucket = JSONFileBucket(redis, None, bucketFile, backend=backend)
+
 		hostId = None
 		try:
 			hostId = loadJSONData(join(runDir, 'data.json'))['hostId']
 		except FileNotFoundError:
 			pass
 
-		host = cls(address, redis, id=hostId, bucket=bucketFile, rpcAddress=rpcSock)
+		host = cls(address, redis, id=hostId, bucket=bucket, rpcAddress=rpcSock)
 
 		if hostId is None:
 			storeJSONData(join(runDir, 'data.json'), {'hostId': host.id})
@@ -176,3 +189,11 @@ class HostRPCClient(RPCClient):
 			reqId = self._sendRequest(sock, 'addFile', [name, path, type])
 			response = self._recvResponse(sock, reqId)
 			return response['result']
+
+	@classmethod
+	def fromConfig(cls, config):
+		runDir = abspath(config['runDir'])
+		if not exists(runDir):
+			return None
+
+		return cls(join(runDir, 'rpc.sock'))
