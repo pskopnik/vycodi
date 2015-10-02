@@ -3,6 +3,7 @@ from boto3.session import Session
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from vycodi.bucket import File
+from time import sleep
 
 
 class S3File(File):
@@ -104,9 +105,10 @@ class S3Backend(object):
 
 
 class S3UploadStream(object):
-	pool = ThreadPoolExecutor(5)
+	pool = ThreadPoolExecutor(10)
 	_partSize = 5 << 22
 	_multipartUploadThreshold = 5 << 23
+	_maxCachedParts = 3
 
 	def __init__(self, client, bucket, fileObj, contentLength):
 		self._client = client
@@ -121,6 +123,7 @@ class S3UploadStream(object):
 		self._buffer = BytesIO()
 		if self._useMultipart:
 			self._curPartNumber = 0
+			self._pendingFtrsNum = 0
 			self._uploadFtrs = []
 			response = self._client.create_multipart_upload(
 				Bucket=bucket.name,
@@ -142,12 +145,14 @@ class S3UploadStream(object):
 			self._bucket.put_object(Key=self._fileObj.key, Body=self._buffer)
 
 	def _uploadPart(self):
-		print("uploadPart")
+		while self._pendingFtrsNum >= self._maxCachedParts:
+			sleep(0.01)
 		partBuffer = self._buffer
 		partBuffer.seek(0)
 		self._buffer = BytesIO()
 		self._size = 0
 		self._curPartNumber += 1
+		self._pendingFtrsNum += 1
 		ftr = self.pool.submit(self._doPartUpload, partBuffer, self._curPartNumber)
 		self._uploadFtrs.append(ftr)
 
@@ -159,9 +164,9 @@ class S3UploadStream(object):
 				Body=partBuffer
 			)
 		except Exception as e:
-			print(e)
-			raise
+			raise e
 		del partBuffer
+		self._pendingFtrsNum -= 1
 		return {'ETag': response['ETag'], 'PartNumber': partNumber}
 
 	def _completeUpload(self):
