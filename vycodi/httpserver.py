@@ -1,10 +1,14 @@
-from http.server import HTTPServer
-from http.server import SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from threading import Thread
-from os import fstat
+from vycodi.bucket import BackendError
 import logging
 
-__version__ = "0.1"
+__version__ = "0.2"
+
+
+class ThreadingServer(ThreadingMixIn, HTTPServer):
+	pass
 
 
 class Server(Thread):
@@ -15,7 +19,7 @@ class Server(Thread):
 			pass
 
 		Handler.bucket = bucket
-		self._server = HTTPServer(address, Handler)
+		self._server = ThreadingServer(address, Handler)
 		self._logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
 	def run(self):
@@ -88,7 +92,7 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 
 		try:
 			self.log_message("Starting upload of %s - %s", fileId, fileObj.name)
-			f = open(fileObj.path, 'wb')
+			f = fileObj.openW(contentLength=contentLength)
 			while contentLength > 0:
 				if contentLength < self.buffer_size:
 					chunk = self.rfile.read(contentLength)
@@ -98,8 +102,13 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 				contentLength -= len(chunk)
 			self.log_message("Finished upload of %s", fileId)
 			return True
-		except IOError:
-			self.send_error(500, explain="Couldn't find / write local file")
+		except BackendError as e:
+			try:
+				f.close()
+			except:
+				pass
+			self.log_error("BackendError: %s", str(e))
+			self.send_error(500, explain="Backend error")
 			return False
 		finally:
 			f.close()
@@ -124,19 +133,27 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 		except KeyError:
 			self.send_error(404)
 			return None
+		url = fileObj.genReadURL()
+		if url is not None:
+			self.send_response(302)
+			self.send_header("Location", url)
+			return None
 		try:
-			f = open(fileObj.path, 'rb')
-		except IOError:
-			f.close()
-			self.send_error(500, explain="Couldn't find local file")
+			f = fileObj.openR()
+		except BackendError as e:
+			try:
+				f.close()
+			except:
+				pass
+			self.log_error("BackendError: %s", str(e))
+			self.send_error(500, explain="Backend error")
 			return None
 		try:
 			self.log_message("Sending headers for %s - %s", fileId, fileObj.name)
 			self.send_response(200)
-			self.send_header("Content-type", self.guess_type(fileObj.path))
-			fs = fstat(f.fileno())
-			self.send_header("Content-Length", str(fs[6]))
-			self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
+			self.send_header("Content-Type", fileObj.contentType())
+			self.send_header("Content-Length", fileObj.size())
+			self.send_header("Last-Modified", self.date_time_string(fileObj.lastModified()))
 			self.end_headers()
 			return f
 		except:
@@ -145,6 +162,12 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 
 	def log_message(self, format, *args):
 		self._logger.info("%s - - [%s] %s" %
+						(self.address_string(),
+						self.log_date_time_string(),
+						format % args))
+
+	def log_error(self, format, *args):
+		self._logger.error("%s - - [%s] %s" %
 						(self.address_string(),
 						self.log_date_time_string(),
 						format % args))
