@@ -85,10 +85,10 @@ class WorkerThread(Thread):
 	def run(self):
 		while not self._shouldStop:
 			try:
-				task = self._worker.queueWatcher.reserveTask(timeout=5)
+				reservation = self._worker.queueWatcher.reserveTask(timeout=5)
 			except QueueTimeout:
 				continue
-			self._processingManager.processTask(task)
+			self._processingManager.processTaskReservation(reservation)
 
 
 class Worker(object):
@@ -193,7 +193,7 @@ class Policy(object):
 
 	def storeFailedTask(self, task, failure):
 		"""Called after a failure occurred and requeueAfterFailure
-		evaluated to True
+		evaluated to False
 		Return boolean; whether the task should be added to ...<queue>:failed
 		"""
 		pass
@@ -201,6 +201,17 @@ class Policy(object):
 	def storeFinishedTask(self, task):
 		"""Called after a task was successfully processed
 		Return boolean; whether the task should be added to ...<queue>:finished
+		"""
+		pass
+
+	def getWorkerTTL(self):
+		"""Return the amount of seconds after which a worker is to be considered
+		`dead`
+		"""
+		pass
+
+	def getWorkerHeartbeatInterval(self):
+		"""Return the interval, at which a heartbeat is to be sent
 		"""
 		pass
 
@@ -214,3 +225,9 @@ class DefaultPolicy(Policy):
 
 	def storeFinishedTask(self, task):
 		return True
+
+	def getWorkerTTL(self):
+		return 60
+
+	def getWorkerHeartbeatInterval(self):
+		return 40
