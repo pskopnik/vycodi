@@ -22,7 +22,8 @@ class ProcessingManager(object):
 			self._logger = logger
 		self._processors = {}
 
-	def processTask(self, task):
+	def processTaskReservation(self, reservation):
+		task = reservation.task
 		try:
 			proc = self._processorLoader.init(task.processor, cache=self._processors)
 		except ImportError as e:
@@ -31,63 +32,45 @@ class ProcessingManager(object):
 				% (task.processor, task.id, e))
 			failure = Failure('UnknownProcessor', message=str(e))
 			task.addFailure(failure)
-			self.requeueFailedTask(task, failure)
+			reservation.checkinFailed(failure)
 		except ProcessingException as e:
 			self._logger.warn(
 				"ProcessingException during intialisation for task '%s': %s: %s"
 				% (task.id, e.__name__, e))
 			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			if e.requeue:
-				self.requeueFailedTask(task, failure)
-		except:
+			reservation.checkinFailed(failure, requeue=e.requeue)
+		except Exception as e:
 			self._logger.error(
 				"Exception during intialisation for task '%s': %s: %s"
 				% (task.id, e.__name__, e), exc_info=True)
 			failure = Failure('InitException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			self.requeueFailedTask(task, failure)
+			reservation.checkinFailed(failure)
 
 		try:
 			proc.processTask(task)
-		except ProcessingException:
+		except ProcessingException as e:
 			self._logger.warn(
 				"ProcessingException during execution of task '%s': %s: %s"
 				% (task.id, e.__name__, e))
 			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			if e.requeue:
-				self.requeueFailedTask(task, failure)
-		except:
+			reservation.checkinFailed(failure, requeue=e.requeue)
+		except Exception as e:
 			self._logger.error(
 				"Exception during execution of task '%s': %s: %s"
 				% (task.id, e.__name__, e), exc_info=True)
 			failure = Failure('Exception', message="%s: %s" % (e.__name__, e))
 			task.addFailure(failure)
-			self.requeueFailedTask(task, failure)
+			reservation.checkinFailed(failure)
 		else:
-			# TODO
 			self._logger.info(
 				"Successfully processed task '%s' from queue '%s', processor '%s'"
 				% (task.id, task.queue, task.processor))
-			if self._policy.storeFinishedTask(task):
-				# Add to #queue:.:finished
-				pass
+			reservation.checkinFinished()
 
 		self._worker.cleanupTaskDir(task)
-
-		# TODO
-		# Remove from #queue:.:working # lrem(name, value, num=-1)
-		# Remove from #worker:.:working # lrem(name, value, num=-1)
-
-	def requeueFailedTask(self, task, failure):
-		if self._policy.requeueAfterFailure(task, failure):
-			# Add to #queue
-			pass
-		else:
-			if self._policy.storeFailedTask(task, failure):
-				# Add to #queue:.:failed
-				pass
 
 
 class ClassWrapper(object):
@@ -202,5 +185,5 @@ class FileProcessor(Processor):
 		for file in outFiles:
 			file.upload()
 
-	def perform(self, *args, inFiles=[], outFiles=[], **kwargs):
+	def perform(self, *args, inFiles=None, outFiles=None, **kwargs):
 		pass
