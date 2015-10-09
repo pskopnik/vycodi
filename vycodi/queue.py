@@ -258,8 +258,7 @@ class TaskLoader(object):
 	def storeResult(self, task, result):
 		if isinstance(task, Task):
 			task = task.id
-		resDict = self._redis.hmset(self.keyBase + str(task) + ':result', result)
-		return decodeRedis(resDict)
+		self._redis.hmset(self.keyBase + str(task) + ':result', result)
 
 	def updateTask(self, task, *args):
 		taskExp = task.exportRedis()
