@@ -19,7 +19,7 @@ class Queue(object):
 		"""Fetches and reserves the next queue in the task for the
 		passed in worker
 		timeout value resembles socket.socket.settimeout()
-		If
+		Returns a TaskReservation object
 		"""
 		if timeout is 0:
 			taskId = self._redis.rpoplpush(
@@ -42,12 +42,25 @@ class Queue(object):
 		task = self._taskLoader[taskId]
 		task.worker = worker.id
 		self._redis.lpush('vycodi:worker:' + str(worker.id) + ':working', task.id)
-		return task
+		reservation = TaskReservation(self, task, worker)
+		return reservation
 
 	def enqueue(self, task):
 		task.queue = self.id
 		self._taskLoader.registerTask(task)
 		self._redis.lpush('vycodi:queue:' + str(self.id), task.id)
+
+	def removeTaskFromWorking(self, task):
+		self._redis.lrem('vycodi:queue:' + str(self.id) + ':working', -1, task.id)
+
+	def removeTaskFromWorkerWorking(self, task):
+		self._redis.lrem('vycodi:worker:' + str(task.worker) + ':working', -1, task.id)
+
+	def addTaskToFinished(self, task):
+		self._redis.lpush('vycodi:queue:' + str(self.id) + ':finished', task.id)
+
+	def addTaskToFailed(self, task):
+		self._redis.lpush('vycodi:queue:' + str(self.id) + ':failed', task.id)
 
 	@classmethod
 	def getAll(cls, redis):
@@ -99,6 +112,34 @@ class QueueWatcher(object):
 		raise QueueTimeout()
 
 
+class TaskReservation(object):
+	def __init__(self, queue, task, worker):
+		self.queue = queue
+		self.task = task
+		self.worker = worker
+		self._policy = worker.policy
+
+	def checkinFinished(self):
+		if self._policy.storeFinishedTask(self.task):
+			self.queue.addTaskToFinished(self.task)
+		self.queue.removeTaskFromWorking(self.task)
+		self.queue.removeTaskFromWorkerWorking(self.task)
+
+	def checkinFailed(self, failure, requeue=True):
+		if requeue and self._policy.requeueAfterFailure(self.task, failure):
+			self._requeue()
+		else:
+			if self._policy.storeFailedTask(self.task, failure):
+				self.queue.addTaskToFailed(self.task)
+		self.queue.removeTaskFromWorking(self.task)
+		self.queue.removeTaskFromWorkerWorking(self.task)
+
+	def _requeue(self):
+		self.task.worker = None
+		# TODO # CRASH
+		self.queue.enqueue(self.task)
+
+
 class Batch(object):
 	pass
 
@@ -116,9 +157,9 @@ class QueueException(Exception):
 	pass
 
 
-class QeueueNotSet(QueueException):
+class QueueNotSet(QueueException):
 	def __init__(self):
-		super(QeueueNotSet, self).__init__("QeueueNotSet")
+		super(QueueNotSet, self).__init__("QueueNotSet")
 
 
 class TaskLoader(object):
@@ -148,6 +189,8 @@ class TaskLoader(object):
 	def registerTask(self, task):
 		if task._registered:
 			return
+		if task._loader is None:
+			task._loader = self
 		if task.id is None:
 			task.id = self._fetchNextId()
 		taskDict = task.exportRedis()
@@ -163,14 +206,21 @@ class TaskLoader(object):
 		task._registered = True
 
 	def loadFailures(self, task):
+		if isinstance(task, Task):
+			taskObj = task
+			task = task.id
+		else:
+			taskObj = self[task]
 		failures = []
 		for failureJSON in self._redis.lrange(self.keyBase + str(task) + ':failures', 0, -1):
 			failureDict = loadJSON(failureJSON)
-			failures.append(Failure.fromDict(failureDict))
+			failures.append(Failure.fromDict(failureDict, taskObj))
 
 		return failures
 
 	def addFailure(self, task, failure):
+		if isinstance(task, Task):
+			task = task.id
 		self._redis.rpush(
 			self.keyBase + str(task) + ':failures',
 			dumpJSON(failure.exportRedis())
@@ -179,12 +229,12 @@ class TaskLoader(object):
 	def loadInFiles(self, task):
 		if isinstance(task, Task):
 			task = task.id
-		return self._redis.lrange(self.keyBase + str(task) + ':infiles', 0, -1)
+		return decodeRedis(self._redis.lrange(self.keyBase + str(task) + ':infiles', 0, -1))
 
 	def loadOutFiles(self, task):
 		if isinstance(task, Task):
 			task = task.id
-		return self._redis.lrange(self.keyBase + str(task) + ':outfiles', 0, -1)
+		return decodeRedis(self._redis.lrange(self.keyBase + str(task) + ':outfiles', 0, -1))
 
 	def addInFile(self, task, file):
 		if isinstance(task, Task):
@@ -203,7 +253,7 @@ class TaskLoader(object):
 	def loadResult(self, task):
 		if isinstance(task, Task):
 			task = task.id
-		return self._redis.hgetall(self.keyBase + str(task) + ':result')
+		return decodeRedis(self._redis.hgetall(self.keyBase + str(task) + ':result'))
 
 	def storeResult(self, task, result):
 		if isinstance(task, Task):
@@ -242,6 +292,7 @@ class Task(object):
 		self._loader = loader
 		self.__inFiles = None
 		self.__outFiles = None
+		self.__failures = None
 		self.__result = None
 		self._registered = False
 
@@ -410,7 +461,7 @@ class Task(object):
 	@classmethod
 	def fromRedisDict(cls, taskDict, loader):
 		taskDict = decodeRedis(taskDict)
-		task = Task(
+		task = cls(
 			id=int(taskDict['id']),
 			queue=taskDict['queue'],
 			worker=taskDict.get('worker', None),
@@ -437,7 +488,7 @@ class Failure(object):
 
 	@classmethod
 	def fromDict(cls, failureDict, task):
-		failure = Failure(
+		failure = cls(
 			failureDict['type'],
 			message=failureDict['message'],
 			task=task
