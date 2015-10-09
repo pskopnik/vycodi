@@ -3,6 +3,7 @@ from os.path import join
 from importlib import import_module
 import pkg_resources
 import logging
+from time import sleep
 
 
 class ProcessingException(Exception):
@@ -208,3 +209,28 @@ class FileProcessor(Processor):
 			task.outFiles = outFiles
 		queue.enqueue(task)
 		return task
+
+
+class ResultProcessor(Processor):
+	def __init__(self, worker):
+		self._worker = worker
+
+	def processTask(self, task):
+		result = self.perform(
+			*task.payload['args'],
+			**task.payload['kwargs']
+		)
+		task.result = result
+
+	def perform(self, *args, **kwargs):
+		pass
+
+	@classmethod
+	def execute(cls, queue, *args, **kwargs):
+		task = cls.enqueue(queue, *args, **kwargs)
+		loader = task._loader
+		result = loader.loadResult(task)
+		while len(result) == 0:
+			sleep(0.01)
+			result = loader.loadResult(task)
+		return result
