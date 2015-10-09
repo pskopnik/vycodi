@@ -161,17 +161,17 @@ class Client(object):
 		self.baseUrl = 'http://' + self.serverStrAdr + '/'
 
 	def download(self, id, outF):
-		r = self._s.get(self.baseUrl + str(id), stream=True)
+		r = self._s.get(self.baseUrl + 'file/' + str(id), stream=True)
 		if not r.status_code == requests.codes.ok:
 			raise HTTPClientException(r.status_code, r.text)
 		if isinstance(outF, str):
 			with open(outF, 'wb') as outFO:
-				for chunk in r.iter_content(chunk_size=1024 * 1024):
+				for chunk in r.iter_content(chunk_size=1 << 20):
 					if chunk:
 						outFO.write(chunk)
 				outFO.flush()
 		else:
-			for chunk in r.iter_content(chunk_size=1024 * 1024):
+			for chunk in r.iter_content(chunk_size=1 << 20):
 				if chunk:
 					outF.write(chunk)
 			outF.flush()

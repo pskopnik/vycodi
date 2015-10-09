@@ -80,13 +80,13 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 	def do_upload(self):
 		contentLength = int(self.headers['Content-Length'])
 
-		fileId = self.path.lstrip('/')
 		try:
+			fileId = self._extractFileId()
 			fileObj = self.bucket[fileId]
 			if not fileObj.writable():
 				self.send_error(403, explain="File not writable")
 				return False
-		except KeyError:
+		except (KeyError | UnknownPathException):
 			self.send_error(404)
 			return False
 
@@ -124,13 +124,13 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 		None, in which case the caller has nothing further to do.
 
 		"""
-		fileId = self.path.lstrip('/')
 		try:
+			fileId = self._extractFileId()
 			fileObj = self.bucket[fileId]
 			if not fileObj.readable():
 				self.send_error(403, explain="File not readable")
 				return None
-		except KeyError:
+		except (KeyError | UnknownPathException):
 			self.send_error(404)
 			return None
 		url = fileObj.genReadURL()
@@ -171,3 +171,14 @@ class HTTPRequestHandler(SimpleHTTPRequestHandler):
 						(self.address_string(),
 						self.log_date_time_string(),
 						format % args))
+
+	def _extractFileId(self):
+		path = self.path.lstrip('/')
+		if path.startswith("file/"):
+			return path[5:]
+		else:
+			raise UnknownPathException()
+
+
+class UnknownPathException(Exception):
+	pass
