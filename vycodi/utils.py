@@ -2,6 +2,7 @@ import json
 from redis import StrictRedis
 from io import IOBase
 from os.path import exists
+import six
 
 
 def dumpJSON(data):
@@ -9,6 +10,8 @@ def dumpJSON(data):
 
 
 def loadJSON(string):
+	if isinstance(string, six.binary_type):
+		string = string.decode('utf-8')
 	return json.loads(string)
 
 
@@ -47,7 +50,7 @@ def storeJSONData(file, data):
 def loadJSONField(d, name, default=None):
 	try:
 		return loadJSON(d[name])
-	except (KeyError, ValueError):
+	except (KeyError | ValueError):
 		return default
 
 
@@ -69,9 +72,19 @@ def redisFromConfig(config):
 
 
 def decodeRedis(d, encoding='utf-8', errors='strict'):
-	n = dict()
-	for k in d:
-		n[k.decode(encoding=encoding, errors=errors)] = d[k].decode(
-			encoding=encoding, errors=errors
-		)
-	return n
+	if isinstance(d, dict):
+		n = dict()
+		for k in d:
+			n[k.decode(encoding=encoding, errors=errors)] = d[k].decode(
+				encoding=encoding, errors=errors
+			)
+		return n
+	elif isinstance(d, list):
+		n = []
+		for v in d:
+			n.append(v.decode(encoding=encoding, errors=errors))
+		return n
+	elif isinstance(d, six.binary_type):
+		return d.decode(encoding=encoding, errors=errors)
+	else:
+		return d
