@@ -22,7 +22,6 @@ class WorkerDaemon(Daemon):
 
 	def _shutdown(self):
 		self.worker.shutdown()
-		self.worker.join()
 
 	@classmethod
 	def fromConfig(cls, config, *args, redis=None, **kwargs):
@@ -102,7 +101,7 @@ class Worker(object):
 		self._registered = False
 		self._taskRunDirs = {}
 		self.queueWatcher = QueueWatcher(redis, self, queues=queues)
-		self.processorLoader = ProcessorLoader(redis)
+		self.processorLoader = ProcessorLoader(self)
 		self.fileLoader = FileLoader(redis)
 
 	def start(self):
@@ -127,6 +126,8 @@ class Worker(object):
 		path = join(self._runDir, 'task.%s' % task.id)
 		task.runDir = path
 		self._taskRunDirs[task.id] = path
+		if not exists(path):
+			mkdir(path)
 		return path
 
 	def cleanupTaskDir(self, task):
@@ -167,13 +168,15 @@ class Worker(object):
 		if not exists(runDir):
 			mkdir(runDir)
 
+		queues = config.get('queues', [])
+
 		workerId = None
 		try:
 			workerId = loadJSONData(join(runDir, 'data.json'))['workerId']
 		except FileNotFoundError:
 			pass
 
-		worker = cls(redis, id=workerId)
+		worker = cls(redis, runDir, id=workerId, queues=queues)
 
 		if workerId is None:
 			storeJSONData(join(runDir, 'data.json'), {'workerId': worker.id})
