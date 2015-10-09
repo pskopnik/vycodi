@@ -36,15 +36,15 @@ class ProcessingManager(object):
 		except ProcessingException as e:
 			self._logger.warn(
 				"ProcessingException during intialisation for task '%s': %s: %s"
-				% (task.id, e.__name__, e))
-			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
+				% (task.id, e.__class__.__name__, e))
+			failure = Failure('ProcessingException', message="%s: %s" % (e.__class__.__name__, e))
 			task.addFailure(failure)
 			reservation.checkinFailed(failure, requeue=e.requeue)
 		except Exception as e:
 			self._logger.error(
 				"Exception during intialisation for task '%s': %s: %s"
-				% (task.id, e.__name__, e), exc_info=True)
-			failure = Failure('InitException', message="%s: %s" % (e.__name__, e))
+				% (task.id, e.__class__.__name__, e), exc_info=True)
+			failure = Failure('InitException', message="%s: %s" % (e.__class__.__name__, e))
 			task.addFailure(failure)
 			reservation.checkinFailed(failure)
 
@@ -53,15 +53,15 @@ class ProcessingManager(object):
 		except ProcessingException as e:
 			self._logger.warn(
 				"ProcessingException during execution of task '%s': %s: %s"
-				% (task.id, e.__name__, e))
-			failure = Failure('ProcessingException', message="%s: %s" % (e.__name__, e))
+				% (task.id, e.__class__.__name__, e))
+			failure = Failure('ProcessingException', message="%s: %s" % (e.__class__.__name__, e))
 			task.addFailure(failure)
 			reservation.checkinFailed(failure, requeue=e.requeue)
 		except Exception as e:
 			self._logger.error(
 				"Exception during execution of task '%s': %s: %s"
-				% (task.id, e.__name__, e), exc_info=True)
-			failure = Failure('Exception', message="%s: %s" % (e.__name__, e))
+				% (task.id, e.__class__.__name__, e), exc_info=True)
+			failure = Failure('Exception', message="%s: %s" % (e.__class__.__name__, e))
 			task.addFailure(failure)
 			reservation.checkinFailed(failure)
 		else:
@@ -119,6 +119,7 @@ class ProcessorLoader(object):
 		except KeyError:
 			proc = procCl(self.worker)
 			cache[procCl] = proc
+			return proc
 		except TypeError:
 			return procCl(self.worker)
 
@@ -149,6 +150,7 @@ class Processor(object):
 		}
 		task = Task(processor=procFullName, payload=payload)
 		queue.enqueue(task)
+		return task
 
 
 class FileProcessor(Processor):
@@ -166,8 +168,8 @@ class FileProcessor(Processor):
 		self._uploadFiles(outFiles)
 
 	def _prepareFiles(self, task):
-		fileLoader = self.worker.fileLoader
-		self.worker.crtTaskDir(task)
+		fileLoader = self._worker.fileLoader
+		self._worker.crtTaskDir(task)
 		inFiles = []
 		for fileId in task.inFiles:
 			file = fileLoader[fileId]
@@ -187,3 +189,22 @@ class FileProcessor(Processor):
 
 	def perform(self, *args, inFiles=None, outFiles=None, **kwargs):
 		pass
+
+	@classmethod
+	def enqueue(cls, queue, inFiles=None, outFiles=None, *args, **kwargs):
+		try:
+			procFullName = cls._procFullName
+		except AttributeError:
+			cls._procFullName = cls.__module__ + '.' + cls.__name__
+			procFullName = cls._procFullName
+		payload = {
+			"args": args,
+			"kwargs": kwargs
+		}
+		task = Task(processor=procFullName, payload=payload)
+		if inFiles is not None:
+			task.inFiles = inFiles
+		if outFiles is not None:
+			task.outFiles = outFiles
+		queue.enqueue(task)
+		return task
