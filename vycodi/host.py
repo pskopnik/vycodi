@@ -1,4 +1,4 @@
-from vycodi.bucket import FileBucket, File, JSONFileBucket, validFileTypes
+from vycodi.bucket import FileBucket, FileSystemFile, JSONFileBucket, validFileTypes
 from vycodi.httpserver import Server as HTTPServer
 from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, ensureJSONData, storeJSONData, loadJSONData
@@ -172,7 +172,7 @@ class HostRPCServer(Thread):
 					code=111,
 					message="Path not accessible"
 				)
-			f = File(None, name, path, type)
+			f = FileSystemFile(None, name, path, type)
 			self._host.bucket.add(f)
 			self._logger.info("Added file %s - %s @ %s", f.id, f.name, f.path)
 			return f.id

@@ -50,22 +50,22 @@ class File(object):
 		self.bucket.writeLockFile(self)
 
 	def openR(self):
-		self.bucket.backend.openR(self)
+		return self.bucket.backend.openR(self)
 
 	def openW(self, contentLength=None):
-		self.bucket.backend.openR(self, contentLength=contentLength)
+		return self.bucket.backend.openR(self, contentLength=contentLength)
 
 	def genReadURL(self):
-		self.bucket.backend.genReadURL(self)
+		return self.bucket.backend.genReadURL(self)
 
 	def size(self):
-		self.bucket.backend.size(self)
+		return self.bucket.backend.size(self)
 
 	def contentType(self):
-		self.bucket.backend.contentType(self)
+		return self.bucket.backend.contentType(self)
 
 	def lastModified(self):
-		self.bucket.backend.lastModified(self)
+		return self.bucket.backend.lastModified(self)
 
 	def export(self):
 		return {
@@ -161,8 +161,7 @@ class FileBucket(object):
 			l.acquire()
 			self._redis.srem(self.keyBase + str(f.id) + ":hosts", self.host.id)
 			if self._redis.scard(self.keyBase + str(f.id) + ":hosts") < 1:
-				self._redis.delete(self.keyBase + str(f.id))
-				self._redis.delete(self.keyBase + str(f.id) + ':hosts')
+				self._redis.delete(self.keyBase + str(f.id), self.keyBase + str(f.id) + ':hosts')
 			l.release()
 		self._registered = False
 
@@ -174,8 +173,7 @@ class FileBucket(object):
 		l.acquire()
 		self._redis.srem(self.keyBase + str(file.id) + ":hosts", self.host.id)
 		if self._redis.scard(self.keyBase + str(file.id) + ":hosts") < 1:
-			self._redis.delete(self.keyBase + str(file.id))
-			self._redis.delete(self.keyBase + str(file.id) + ':hosts')
+			self._redis.delete(self.keyBase + str(file.id), self.keyBase + str(file.id) + ':hosts')
 		l.release()
 
 	def _fetchNextId(self):
