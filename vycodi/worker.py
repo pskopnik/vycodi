@@ -3,6 +3,7 @@ from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, storeJSONData, loadJSONData
 from vycodi.queue import QueueWatcher, QueueTimeout, Task
 from vycodi.processor import ProcessorLoader, ProcessingManager
+from vycodi.heartbeat import Heartbeat, Purger
 from os.path import join, abspath, exists
 from os import mkdir
 from shutil import rmtree, Error
@@ -103,6 +104,14 @@ class Worker(object):
 		self.queueWatcher = QueueWatcher(redis, self, queues=queues)
 		self.processorLoader = ProcessorLoader(self)
 		self.fileLoader = FileLoader(redis)
+		self.heartbeat = Heartbeat(
+			redis, str(self.id),
+			self.policy.getWorkerTTL(),
+			self.policy.getWorkerHeartbeatInterval(),
+			prefix="vycodi:worker:",
+			setKey="vycodi:workers",
+			purger=self
+		)
 
 	def start(self):
 		self._logger.info("Starting...")
@@ -110,15 +119,20 @@ class Worker(object):
 			self._pool.initPool(self)
 		self._pool.start()
 		self._register()
+		self.heartbeat.start()
 
 	def shutdown(self):
 		self._logger.info("Shutting down...")
 		self._unregister()
+		self.heartbeat.signalStopIntent()
 		self._pool.shutdown()
 		if len(self._taskRunDirs) != 0:
 			self._logger.warn("Task run dirs left")
 			for taskId in self._taskRunDirs:
 				self.cleanupTaskDir(taskId)
+
+	def purge(self, prefix, key, postfix):
+		pass
 
 	def crtTaskDir(self, task):
 		if task.id in self._taskRunDirs:

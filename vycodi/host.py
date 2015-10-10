@@ -3,6 +3,7 @@ from vycodi.httpserver import Server as HTTPServer
 from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, ensureJSONData, storeJSONData, loadJSONData
 from vycodi.jsonrpc import RPCClient, Server as RPCServer, Dispatcher, JSONRPCDispatchException
+from vycodi.heartbeat import Heartbeat, Purger
 from os.path import join, abspath, exists, dirname
 from os import mkdir, access, R_OK, W_OK
 from io import IOBase
@@ -59,6 +60,14 @@ class Host(object):
 		else:
 			bucket.host = self
 			self.bucket = bucket
+		self.heartbeat = Heartbeat(
+			redis, str(self.id),
+			60,
+			30,
+			prefix="vycodi:host:",
+			setKey="vycodi:hosts",
+			purger=self
+		)
 
 	def start(self):
 		self._logger.info("Starting...")
@@ -70,20 +79,26 @@ class Host(object):
 			self._rpcServer.start()
 		self._server.start()
 		self._register()
+		self.heartbeat.start()
 		self.bucket.load()
 
 	def shutdown(self):
 		self._logger.info("Shutting down...")
 		self._unregister()
+		self.heartbeat.signalStopIntent()
 		self._server.shutdown()
 		self._rpcServer.shutdown()
 		self.bucket.store()
+
+	def purge(self, prefix, key, postfix):
+		pass
 
 	def join(self):
 		if self._server is not None:
 			self._server.join()
 		if self._rpcServer is not None:
 			self._rpcServer.join()
+		self.heartbeat.join()
 
 	def rpcClient(self):
 		return HostRPCClient(self._rpcAddress)
