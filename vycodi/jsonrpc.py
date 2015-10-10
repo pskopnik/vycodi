@@ -1,4 +1,3 @@
-# !/usr/bin/python3.4
 from socketserver import ThreadingUnixStreamServer, ThreadingTCPServer, BaseRequestHandler
 import socket
 
