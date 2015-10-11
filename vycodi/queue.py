@@ -10,10 +10,15 @@ class QueueTimeout(Empty):
 
 
 class Queue(object):
-	def __init__(self, id, redis):
+	_queuesCache = {}
+
+	def __init__(self, id, redis, taskLoader=None):
 			self.id = id
 			self._redis = redis
-			self._taskLoader = TaskLoader(redis)
+			if taskLoader is None:
+				self._taskLoader = TaskLoader(redis)
+			else:
+				self._taskLoader = taskLoader
 
 	def reserveTask(self, worker, timeout=0):
 		"""Fetches and reserves the next queue in the task for the
@@ -71,23 +76,34 @@ class Queue(object):
 
 	@classmethod
 	def get(cls, queueId, redis):
-		redis.sadd('vycodi:queues', queueId)
-		return Queue(queueId, redis)
+		try:
+			specCache = cls._queuesCache[redis]
+		except KeyError:
+			cls._queuesCache[redis] = {}
+			specCache = cls._queuesCache[redis]
+		try:
+			return specCache[queueId]
+		except KeyError:
+			redis.sadd('vycodi:queues', queueId)
+			queue = Queue(queueId, redis)
+			specCache[queueId] = queue
+			return queue
 
 
 class QueueWatcher(object):
-	def __init__(self, redis, worker, queues=[]):
+	def __init__(self, redis, worker, queues=[], taskLoader=None):
 		self._worker = worker
 		self._redis = redis
 		self._queues = []
+		self._taskLoader = taskLoader
 		for queue in queues:
 			if not isinstance(queue, Queue):
-				queue = Queue.get(queue, self._redis)
+				queue = Queue.get(queue, self._redis, taskLoader=self._taskLoader)
 			self._queues.append(queue)
 
 	def addQueue(self, queue):
 		if not isinstance(queue, Queue):
-			queue = Queue.get(queue, self._redis)
+			queue = Queue.get(queue, self._redis, taskLoader=self._taskLoader)
 		self._queues.append(queue)
 
 	def reserveTask(self, timeout=None, wait=0.1):
@@ -120,12 +136,16 @@ class TaskReservation(object):
 		self._policy = worker.policy
 
 	def checkinFinished(self):
+		if not self.worker.isAlive():
+			return
 		if self._policy.storeFinishedTask(self.task):
 			self.queue.addTaskToFinished(self.task)
 		self.queue.removeTaskFromWorking(self.task)
 		self.queue.removeTaskFromWorkerWorking(self.task)
 
 	def checkinFailed(self, failure, requeue=True):
+		if not self.worker.isAlive():
+			return
 		if requeue and self._policy.requeueAfterFailure(self.task, failure):
 			self._requeue()
 		else:
