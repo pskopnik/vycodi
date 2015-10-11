@@ -1,7 +1,7 @@
 from vycodi.httpclient import FileLoader
 from vycodi.daemon import Daemon
 from vycodi.utils import redisFromConfig, storeJSONData, loadJSONData
-from vycodi.queue import QueueWatcher, QueueTimeout, Task
+from vycodi.queue import Queue, QueueWatcher, QueueTimeout, TaskLoader, Task
 from vycodi.processor import ProcessorLoader, ProcessingManager
 from vycodi.heartbeat import Heartbeat, Purger
 from os.path import join, abspath, exists
@@ -101,7 +101,8 @@ class Worker(Purger):
 		self.id = id if id is not None else self._fetchNextId()
 		self._registered = False
 		self._taskRunDirs = {}
-		self.queueWatcher = QueueWatcher(redis, self, queues=queues)
+		self.taskLoader = TaskLoader(redis)
+		self.queueWatcher = QueueWatcher(redis, self, queues=queues, taskLoader=self.taskLoader)
 		self.processorLoader = ProcessorLoader(self)
 		self.fileLoader = FileLoader(redis)
 		self.heartbeat = Heartbeat(
@@ -132,15 +133,18 @@ class Worker(Purger):
 				self.cleanupTaskDir(taskId)
 
 	def isAlive(self):
-		return self._redis.exists("vycodi:host:" + str(self.id))
+		return self._redis.exists("vycodi:worker:" + str(self.id))
 
 	def _purge(self, prefix, key, postfix, heartbeat):
-		# requeue
-		# remove from working
-		pass
+		for taskId in self._redis.lrange("vycodi:worker:" + str(self.id) + "working", 0, -1):
+			task = self.taskLoader[taskId]
+			queue = Queue.get(task.queue)
+			queue.enqueue(task)
+			queue.removeTaskFromWorking(task)
+			queue.removeTaskFromWorkerWorking(task)
 
 	def zombie(self, prefix, key, postfix, heartbeat):
-		self._logger("Became zombie, restarting")
+		self._logger.warn("Became zombie, restarting")
 		self.shutdown()
 		self.start()
 

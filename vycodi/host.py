@@ -95,7 +95,9 @@ class Host(Purger):
 		pass
 
 	def zombie(self, prefix, key, postfix, heartbeat):
-		pass
+		self._logger.warn("Became zombie, restarting")
+		self.shutdown()
+		self.start()
 
 	def join(self):
 		if self._server is not None:
