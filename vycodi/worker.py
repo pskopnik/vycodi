@@ -91,7 +91,7 @@ class WorkerThread(Thread):
 			self._processingManager.processTaskReservation(reservation)
 
 
-class Worker(object):
+class Worker(Purger):
 	def __init__(self, redis, runDir, id=None, queues=[], pool=None, policy=None):
 		self._redis = redis
 		self._runDir = runDir
@@ -131,8 +131,18 @@ class Worker(object):
 			for taskId in self._taskRunDirs:
 				self.cleanupTaskDir(taskId)
 
-	def purge(self, prefix, key, postfix):
+	def isAlive(self):
+		return self._redis.exists("vycodi:host:" + str(self.id))
+
+	def _purge(self, prefix, key, postfix, heartbeat):
+		# requeue
+		# remove from working
 		pass
+
+	def zombie(self, prefix, key, postfix, heartbeat):
+		self._logger("Became zombie, restarting")
+		self.shutdown()
+		self.start()
 
 	def crtTaskDir(self, task):
 		if task.id in self._taskRunDirs:

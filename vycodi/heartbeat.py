@@ -5,7 +5,16 @@ from vycodi.utils import decodeRedis
 
 
 class Purger(object):
-	def purge(self, prefix, key, postfix):
+	def purge(self, prefix, key, postfix, heartbeat):
+		"""Called for set members whose main key expired, i.e. who died"""
+		if heartbeat._redis.srem(heartbeat.setKey, key) == 1:
+			self._purge(prefix, key, postfix, heartbeat)
+
+	def _purge(self, prefix, key, postfix, heartbeat):
+		pass
+
+	def zombie(self, prefix, key, postfix, heartbeat):
+		"""Called when the own main key expired"""
 		pass
 
 
@@ -50,13 +59,17 @@ class Heartbeat(Thread):
 		while not self._shouldStopHeartbeat:
 			sleep(self.interval)
 			self._logger.debug("Sending heartbeat")
-			self._redis.expire(
+			r = self._redis.expire(
 				self.prefix + self.key + self.postfix,
 				self.ttl)
+			if not r and self.purger is not None:
+				self._logger.warn("Detected zombie")
+				self.purger.zombie(self.prefix, self.key, self.postfix, self)
 
 			if maxCounter is not None:
 				counter += 1
 				if counter >= maxCounter:
+					self._redis.sadd(self.setKey, self.key)
 					self._logger.debug("Checking for dead instances")
 					for k in self._redis.smembers(self.setKey):
 						k = decodeRedis(k)
@@ -65,7 +78,7 @@ class Heartbeat(Thread):
 								"Found dead instance '%s' + '%s' + '%s'"
 								% (self.prefix, k, self.postfix)
 							)
-							self.purger.purge(self.prefix, k, self.postfix)
+							self.purger.purge(self.prefix, k, self.postfix, self)
 					counter = 0
 
 	def signalStopIntent(self):

@@ -36,7 +36,7 @@ class HostDaemon(Daemon):
 		return cls(host, pidFile, *args, logFile=logFile, **kwargs)
 
 
-class Host(object):
+class Host(Purger):
 	"""Host for files
 	"""
 	def __init__(self, address, redis, id=None, bucket=None, rpcAddress=None):
@@ -90,7 +90,11 @@ class Host(object):
 		self._rpcServer.shutdown()
 		self.bucket.store()
 
-	def purge(self, prefix, key, postfix):
+	def _purge(self, prefix, key, postfix, heartbeat):
+		# remove from files
+		pass
+
+	def zombie(self, prefix, key, postfix, heartbeat):
 		pass
 
 	def join(self):
