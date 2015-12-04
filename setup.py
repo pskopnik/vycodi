@@ -6,8 +6,9 @@ import sys
 
 # with open('README.rst') as file:
 # 	long_description = file.read()
+long_description = ""
 
-# extras = {}
+extras = {}
 # if sys.version_info < (3, 3):
 # 	extras['tests_require'] = ['mock']
 
