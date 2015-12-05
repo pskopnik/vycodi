@@ -1,5 +1,4 @@
 import json
-from redis import StrictRedis
 from io import IOBase
 from os.path import exists
 import six
@@ -24,11 +23,14 @@ def loadJSONConfig(file):
 
 
 def storeJSONConfig(file, data):
+	indent = '\t'
+	if six.PY2:
+		indent = 4
 	if isinstance(file, IOBase):
-		json.dump(data, file, indent='\t')
+		json.dump(data, file, indent=indent)
 	else:
 		with open(file, 'w') as f:
-			json.dump(data, f, indent='\t')
+			json.dump(data, f, indent=indent)
 
 
 def loadJSONData(file):
@@ -64,11 +66,16 @@ def ensureJSONData(filePath, default):
 
 
 def redisFromConfig(config):
+	global StrictRedis
 	host = config.get('dbhost', 'localhost')
 	port = int(config.get('dbport', 6379))
 	db = int(config.get('dbdb', 0))
 	password = config.get('dbpassword', None)
-	return StrictRedis(host=host, port=port, db=db, password=password)
+	try:
+		return StrictRedis(host=host, port=port, db=db, password=password)
+	except NameError:
+		from redis import StrictRedis
+		return StrictRedis(host=host, port=port, db=db, password=password)
 
 
 def decodeRedis(d, encoding='utf-8', errors='strict'):
