@@ -28,7 +28,7 @@ class NotRunning(Exception):
 
 class Daemon(object):
 	def __init__(self, runDir=None, pidFile=None, logFile=None,
-			logLevel=logging.info):
+			logLevel=logging.INFO):
 		self._runDir = abspath(runDir) if runDir else os.getcwd()
 		self._pidFile = pidFile or join(self._runDir, 'daemon.pid')
 		self._logFile = logFile or join(self._runDir, 'daemon.log')
