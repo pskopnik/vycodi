@@ -12,16 +12,15 @@ import logging
 
 
 class WorkerDaemon(Daemon):
-	def __init__(self, worker, *args, logFile=None, **kwargs):
+	def __init__(self, worker, *args, **kwargs):
 		super(WorkerDaemon, self).__init__(*args, **kwargs)
 		self.worker = worker
-		self._logFile = logFile
 
-	def _run(self, *args, **kwargs):
+	def run(self, *args, **kwargs):
 		self.worker.start()
 		self.wait()
 
-	def _shutdown(self):
+	def shutdown(self):
 		self.worker.shutdown()
 
 	@classmethod
@@ -30,9 +29,7 @@ class WorkerDaemon(Daemon):
 		if not exists(runDir):
 			mkdir(runDir)
 		worker = Worker.fromConfig(config, redis=redis)
-		pidFile = join(runDir, 'daemon.pid')
-		logFile = join(runDir, 'daemon.log')
-		return cls(worker, pidFile, *args, logFile=logFile, **kwargs)
+		return cls(worker, *args, runDir=runDir, **kwargs)
 
 
 class WorkerPool(object):

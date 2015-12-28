@@ -12,16 +12,15 @@ import logging
 
 
 class HostDaemon(Daemon):
-	def __init__(self, host, *args, logFile=None, **kwargs):
+	def __init__(self, host, *args, **kwargs):
 		super(HostDaemon, self).__init__(*args, **kwargs)
 		self.host = host
-		self._logFile = logFile
 
-	def _run(self, *args, **kwargs):
+	def run(self, *args, **kwargs):
 		self.host.start()
 		self.wait()
 
-	def _shutdown(self):
+	def shutdown(self):
 		self.host.shutdown()
 		self.host.join()
 
@@ -31,9 +30,7 @@ class HostDaemon(Daemon):
 		if not exists(runDir):
 			mkdir(runDir)
 		host = Host.fromConfig(config, redis=redis)
-		pidFile = join(runDir, 'daemon.pid')
-		logFile = join(runDir, 'daemon.log')
-		return cls(host, pidFile, *args, logFile=logFile, **kwargs)
+		return cls(host, *args, runDir=runDir, **kwargs)
 
 
 class Host(Purger):

@@ -7,8 +7,8 @@ from vycodi.worker import WorkerDaemon
 @argh.named("start")
 def startHost(configFile, foreground=False):
 	config = loadJSONConfig(configFile)
-	hostDaemon = HostDaemon.fromConfig(config, daemonize=not foreground)
-	hostDaemon.start()
+	hostDaemon = HostDaemon.fromConfig(config)
+	hostDaemon.start(detachProcess=not foreground)
 
 
 @argh.named("stop")
@@ -22,17 +22,17 @@ def stopHost(configFile):
 def statusHost(configFile):
 	config = loadJSONConfig(configFile)
 	hostDaemon = HostDaemon.fromConfig(config)
-	if hostDaemon.status():
-		print("host daemon running")
+	if hostDaemon.isRunning():
+		print("Host daemon running")
 	else:
-		print("host daemon not running")
+		print("Host daemon not running")
 
 
 @argh.named("start")
 def startWorker(configFile, foreground=False):
 	config = loadJSONConfig(configFile)
-	workerDaemon = WorkerDaemon.fromConfig(config, daemonize=not foreground)
-	workerDaemon.start()
+	workerDaemon = WorkerDaemon.fromConfig(config)
+	workerDaemon.start(detachProcess=not foreground)
 
 
 @argh.named("stop")
@@ -46,7 +46,7 @@ def stopWorker(configFile):
 def statusWorker(configFile):
 	config = loadJSONConfig(configFile)
 	workerDaemon = WorkerDaemon.fromConfig(config)
-	if workerDaemon.status():
+	if workerDaemon.isRunning():
 		print("Worker daemon running")
 	else:
 		print("Worker daemon not running")
