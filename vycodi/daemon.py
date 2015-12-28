@@ -87,7 +87,7 @@ class Daemon(object):
 		except Exception as e:
 			self.logger.error("Exception in run()", exc_info=e)
 		finally:
-			self.logger.info("Shutting down daemon")
+			self.logger.debug("Shutting down daemon")
 			self.shutdown()
 			try:
 				self._fHandler.close()
